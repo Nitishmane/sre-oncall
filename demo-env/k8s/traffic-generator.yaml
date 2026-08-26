@@ -1,20 +1,24 @@
-# Constant, boring traffic. Without it the error-rate alert has no denominator
-# and the "all green" opening shot of the demo has nothing to show.
+# A synthetic user: constant, boring traffic against the demo service.
+#
+# The error-rate alert is a ratio (5xx / total). With no traffic the denominator
+# is zero, the alert can never fire, and the "all green" opening shot of the demo
+# has nothing to show. Five requests a second is enough for a 2-minute rate
+# window to react within seconds of a fault being injected.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: loadgen
+  name: traffic-generator
   namespace: demo
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: loadgen }
+    matchLabels: { app: traffic-generator }
   template:
     metadata:
-      labels: { app: loadgen }
+      labels: { app: traffic-generator }
     spec:
       containers:
-        - name: loadgen
+        - name: traffic-generator
           image: curlimages/curl:8.10.1
           command: ["/bin/sh", "-c"]
           args:
