@@ -305,7 +305,7 @@ Slack ─── WebSocket ──► relay (src/relay/relay.ts)
 SLACK_BOT_TOKEN=xoxb-...         # Bot OAuth token
 SLACK_APP_TOKEN=xapp-...         # App-level token for Socket Mode
 SLACK_SIGNING_SECRET=...         # For request signature verification
-REFERENCE_AGENT_BOT_USER_ID=U...      # Bot's own Slack user ID (or discovered via auth.test at boot)
+REFERENCE_AGENT_BOT_USER_ID=U0XXXXXXXXX      # Bot's own Slack user ID (or discovered via auth.test at boot)
 ```
 
 ### How mentions/DMs trigger the agent
@@ -384,8 +384,8 @@ The message is ONLY dispatched as an auto-triage if it comes from the PagerDuty 
 
 ```bash
 PAGERDUTY_API_KEY=...           # PagerDuty REST API read-only key (held by the API proxy)
-PAGERDUTY_USER_ID=B...          # The PagerDuty Slack bot's Slack user ID (e.g. B01ABC...)
-PAGERDUTY_CHANNELS=C01...,C02.. # Comma-separated Slack channel IDs to watch
+PAGERDUTY_USER_ID=B0XXXXXXXXX          # The PagerDuty Slack bot's Slack user ID (shape: B0XXXXXXXXX)
+PAGERDUTY_CHANNELS=C0XXXXXXXXX,C0YYYYYYYYY # Comma-separated Slack channel IDs to watch
 PAGERDUTY_SKIP_PATTERNS=...     # Regex patterns for alert titles to skip entirely
 PAGERDUTY_DELAY_PATTERNS=...    # Regex patterns for alert titles to hold 5min before triaging
 PAGERDUTY_DELAY_SECONDS=300     # Hold duration for delay-pattern alerts
@@ -405,7 +405,7 @@ PAGERDUTY_SKIP_CATCHUP=false    # Set true to skip startup scan for missed alert
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 SLACK_SIGNING_SECRET=...
-REFERENCE_AGENT_BOT_USER_ID=U...         # or discovered via auth.test
+REFERENCE_AGENT_BOT_USER_ID=U0XXXXXXXXX         # or discovered via auth.test
 ```
 
 **Anthropic:**
@@ -431,8 +431,8 @@ NOTION_API_TOKEN=...
 GRAFANA_AUTH_TOKEN=...
 GRAFANA_BASE_URL=https://grafana.example.com
 PAGERDUTY_API_KEY=...
-PAGERDUTY_USER_ID=B...
-PAGERDUTY_CHANNELS=C...,C...
+PAGERDUTY_USER_ID=B0XXXXXXXXX
+PAGERDUTY_CHANNELS=C0XXXXXXXXX,C0YYYYYYYYY
 # ...plus additional third-party vendor tokens (feature flags, marketing, BI/analytics MCPs)
 ```
 
@@ -459,8 +459,8 @@ AWS_DEFAULT_REGION=us-east-1
 ENGINE_NAME=main                             # or tenant handle
 MAX_CONCURRENT_CONVERSATIONS=4               # global concurrency limit
 RELAY_TOKEN=...                              # shared secret for relay→engine auth
-REFERENCE_AGENT_SYSLOG_CHANNEL=C...               # operational alerts channel
-FIRST_ADMIN=U...                             # bootstrap admin Slack UID
+REFERENCE_AGENT_SYSLOG_CHANNEL=C0XXXXXXXXX               # operational alerts channel
+FIRST_ADMIN=U0XXXXXXXXX                             # bootstrap admin Slack UID
 SECRETS_BACKEND=aws-sm                       # or "env" for local dev
 ```
 

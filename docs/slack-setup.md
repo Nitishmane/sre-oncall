@@ -60,7 +60,7 @@ Create an incident channel, invite the bot (`/invite @SRE-Oncall`), and copy the
 channel ID from *View channel details* → bottom of the dialog:
 
 ```bash
-SLACK_INCIDENT_CHANNEL=C0123456789
+SLACK_INCIDENT_CHANNEL=C0XXXXXXXXX
 ```
 
 Alert-triggered sessions post there and thread their whole investigation under
@@ -70,7 +70,7 @@ useless for a demo.
 ## 4. Restrict who can approve
 
 ```bash
-SLACK_APPROVER_IDS=U0123ABCDEF,U0456GHIJKL
+SLACK_APPROVER_IDS=U0XXXXXXXXX,U0YYYYYYYYY
 ```
 
 Comma-separated Slack user IDs (profile → *More* → *Copy member ID*). Only these

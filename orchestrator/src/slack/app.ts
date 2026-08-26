@@ -99,7 +99,7 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     }
   }
 
-  /** Strips the bot mention so the agent doesn't see `<@U123>` in the question. */
+  /** Strips the bot mention so the agent doesn't see `<@U0XXXXXXXXX>` in the question. */
   function cleanText(text: string): string {
     return text.replace(/<@[A-Z0-9]+>/g, "").trim();
   }
