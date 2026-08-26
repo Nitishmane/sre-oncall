@@ -10,16 +10,18 @@
   },
   "workspaces": [
     "orchestrator",
+    "web",
     "demo-env/demo-service"
   ],
   "scripts": {
     "dev:orchestrator": "npm run dev --workspace @sre-oncall/orchestrator",
     "provision": "node --experimental-strip-types --env-file-if-exists=.env agent/scripts/provision.ts",
-    "test": "node --experimental-strip-types --test orchestrator/test/*.test.ts",
-    "typecheck": "tsc -p orchestrator && tsc -p agent && tsc -p demo-env/demo-service",
+    "test": "node --experimental-strip-types --test orchestrator/test/*.test.ts web/test/*.test.ts",
+    "typecheck": "tsc -p orchestrator && tsc -p agent && tsc -p demo-env/demo-service && npm run typecheck --workspace @sre-oncall/web",
     "demo:up": "./demo-env/scripts/bootstrap.sh",
     "demo:fault": "./demo-env/scripts/inject-fault.sh",
-    "demo:reset": "./demo-env/scripts/heal-reset.sh"
+    "demo:reset": "./demo-env/scripts/heal-reset.sh",
+    "dev:web": "npm run dev --workspace @sre-oncall/web"
   },
   "devDependencies": {
     "typescript": "^5.9.2",

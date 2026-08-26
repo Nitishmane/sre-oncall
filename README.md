@@ -42,6 +42,7 @@ never at the harness itself, which has no login in local mode.
 | `skills/sre-runbooks/` | Runbooks per failure signature, plus the triage-report, postmortem and handoff formats. Loaded by the harness as a git-backed skill. |
 | `mcp/` | Local stdio→HTTP bridges for the MCP servers the harness can only reach over a URL. |
 | `demo-env/` | kind cluster, the fault-injectable demo service, the ArgoCD application, the Terraform-managed alerting config, and the inject/reset scripts. |
+| `web/` | The console: Next.js on Vercel, GitHub-OAuth allowlist, and a server-side proxy so the browser never sees the tunnel or its token. |
 | `index.html` | The public architecture explainer. Static, and deliberately unable to invoke anything. |
 
 ## Running it
@@ -115,6 +116,11 @@ promise chain — a `firing` and its `resolved` can't race — and a global sema
 caps concurrent sessions. Repeat alerts are dropped by a per-incident cooldown,
 and an hourly limit bounds the worst case. Flap-prone rules are held briefly and
 dropped silently if they self-resolve.
+
+**The console is not public.** It can start harness sessions, so it sits behind
+GitHub OAuth plus an allowlist that fails closed, and reaches the harness only
+through a server-side proxy holding a bearer the browser never sees. The tunnel
+terminates at the orchestrator, never at the harness. See `web/README.md`.
 
 **One owner per thing.** ArgoCD owns the workload, Terraform owns the Grafana
 alerting config, and nothing owns both. That is what makes each of the agent's
