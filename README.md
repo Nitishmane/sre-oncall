@@ -82,6 +82,21 @@ the pipeline runs headless.
 alert rule and one runbook. `heal-reset.sh` returns the service to steady state,
 which resolves the alert and triggers the postmortem session.
 
+## Changing the model
+
+The model is configuration. `SRE_ONCALL_MODEL` is a `provider/model` FQN whose
+provider half decides which provider gets registered on the harness and which
+API key is read:
+
+```bash
+SRE_ONCALL_MODEL=anthropic/claude-opus-5   # + ANTHROPIC_API_KEY
+SRE_ONCALL_MODEL=openai/gpt-5-6-sol        # + OPENAI_API_KEY
+npm run provision                          # re-run after changing it
+npm run provision -- --list-models         # what this harness offers
+```
+
+Verified against a live harness with both. No code changes either way.
+
 ## Design notes
 
 **Alert text is untrusted.** Anyone who can name a Kubernetes object can write

@@ -6,7 +6,10 @@
  *   node --experimental-strip-types --env-file-if-exists=.env agent/scripts/provision.ts
  */
 import { TrueForge, type TrueForgeApi } from "@truefoundry/trueforge-sdk";
-import { agentSpec, isConfigured, mcpServers, modelNames, skills } from "../agent.ts";
+import {
+  agentSpec, apiKeyEnvFor, isConfigured, mcpServers, modelNames, primaryModel,
+  providerOf, skills,
+} from "../agent.ts";
 
 const baseUrl = process.env["TRUEFORGE_API_URL"] ?? "http://localhost:8790";
 const token = process.env["TRUEFORGE_TOKEN"];
@@ -18,49 +21,68 @@ function ok(message: string) { console.log(`  ✓ ${message}`); }
 function skip(message: string) { console.log(`  – ${message}`); }
 
 /**
- * Registers the Anthropic provider from ANTHROPIC_API_KEY, taking the model
- * definitions (context length, output limits) from the harness's own catalog
- * rather than hardcoding them here — the catalog is what the harness validates
- * a model FQN against.
+ * Registers the model provider named by SRE_ONCALL_MODEL's `provider/` half,
+ * taking model definitions (context length, output limits) from the harness's
+ * own catalog rather than hardcoding them — the catalog is what the harness
+ * validates a model FQN against.
+ *
+ * Nothing here is vendor-specific: switching from Anthropic to OpenAI is
+ * SRE_ONCALL_MODEL plus the matching API key.
  */
 async function provisionModelProvider(): Promise<void> {
   console.log("Model provider");
-  const apiKey = process.env["ANTHROPIC_API_KEY"] ?? "";
+  const provider = providerOf(primaryModel());
+  const keyEnv = apiKeyEnvFor(provider);
+  const apiKey = process.env[keyEnv] ?? "";
+
   if (apiKey === "") {
-    skip("anthropic (missing ANTHROPIC_API_KEY) — configure it in the TrueForge UI instead");
+    skip(`${provider} (missing ${keyEnv}) — or configure it in the TrueForge UI`);
     return;
   }
 
   const catalog = await client.catalogs.modelProviders.list();
   // The catalog holds both well-known providers (which carry model lists) and
   // custom ones (which do not) — narrow to the former before reading `models`.
-  const anthropic = catalog.data.find(
-    (entry): entry is TrueForgeApi.CatalogWellKnownModelProvider =>
-      entry.type === "anthropic" && "models" in entry,
+  const entry = catalog.data.find(
+    (candidate): candidate is TrueForgeApi.CatalogWellKnownModelProvider =>
+      candidate.type === provider && "models" in candidate,
   );
-  if (anthropic === undefined) {
-    skip("anthropic is not in this harness's catalog");
-    return;
+  if (entry === undefined) {
+    const known = catalog.data.map((candidate) => candidate.type).join(", ");
+    throw new Error(`This harness has no "${provider}" provider. It offers: ${known}`);
   }
 
-  // Only the models this agent actually uses, so the picker stays readable.
+  // Only the models this agent uses, so the harness's picker stays readable.
   const wanted = new Set(modelNames());
-  const models = anthropic.models.filter((model) => wanted.has(`anthropic/${model.name}`));
+  const models = entry.models.filter((model) => wanted.has(`${provider}/${model.name}`));
   if (models.length === 0) {
     throw new Error(
       `None of ${[...wanted].join(", ")} exist in the catalog. Available: ` +
-        anthropic.models.map((model) => `anthropic/${model.name}`).join(", "),
+        entry.models.map((model) => `${provider}/${model.name}`).join(", "),
     );
   }
 
   await client.settings.modelProviders.createOrUpdate({
     manifest: {
-      type: "anthropic",
+      type: provider,
       auth: { apiKey },
       models: models as TrueForgeApi.ConfiguredModel[],
-    },
+    } as TrueForgeApi.ModelProviderManifest,
   });
-  ok(`anthropic (${models.map((model) => model.name).join(", ")})`);
+  ok(`${provider} (${models.map((model) => model.name).join(", ")})`);
+}
+
+/** `--list-models` — what this harness can be pointed at. */
+async function listModels(): Promise<void> {
+  const catalog = await client.catalogs.modelProviders.list();
+  console.log("Models available on this harness (set one as SRE_ONCALL_MODEL):\n");
+  for (const entry of catalog.data) {
+    if (!("models" in entry) || entry.models.length === 0) continue;
+    const keyEnv = apiKeyEnvFor(entry.type);
+    console.log(`  ${entry.type}  (needs ${keyEnv})`);
+    for (const model of entry.models) console.log(`    ${entry.type}/${model.name}`);
+    console.log("");
+  }
 }
 
 async function provisionMcpServers(): Promise<void> {
@@ -99,6 +121,10 @@ async function provisionAgent(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--list-models")) {
+    await listModels();
+    return;
+  }
   console.log(`Provisioning against ${baseUrl}\n`);
   await provisionModelProvider();
   await provisionMcpServers();
@@ -115,8 +141,9 @@ main().catch((err: unknown) => {
   if (body.includes("provider not configured")) {
     console.error(
       "\nThe harness has no model provider for this agent's model.\n" +
-        "Set ANTHROPIC_API_KEY in .env and re-run, or add the provider by hand at\n" +
-        `${baseUrl}/settings/models.`,
+        `Set ${apiKeyEnvFor(providerOf(primaryModel()))} in .env and re-run, or add the ` +
+        `provider by hand at ${baseUrl}/settings/models.\n` +
+        "See what this harness offers with: npm run provision -- --list-models",
     );
   }
   process.exitCode = 1;

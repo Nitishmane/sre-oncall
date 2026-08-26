@@ -177,14 +177,52 @@ export const skills: TrueForgeApi.SkillManifest[] = [
   },
 ];
 
-/** Model FQN for the agent's main loop. Opus: multi-step work under uncertainty. */
+/**
+ * Model FQN for the agent's main loop, as `provider/model`. The provider half is
+ * authoritative: it decides which model provider gets registered on the harness
+ * and which API key is read. Switching vendors is therefore a change to this one
+ * value plus the matching key — no code change.
+ *
+ *   SRE_ONCALL_MODEL=openai/gpt-5-6-sol      OPENAI_API_KEY=...
+ *   SRE_ONCALL_MODEL=anthropic/claude-opus-5 ANTHROPIC_API_KEY=...
+ *
+ * Run `npm run provision -- --list-models` to see what this harness offers.
+ */
 export function primaryModel(): string {
   return env("SRE_ONCALL_MODEL") || "anthropic/claude-opus-5";
 }
 
+/**
+ * A cheaper model for summarising. Defaults to the primary model rather than to
+ * a fixed second name, so switching provider cannot leave a stale cross-vendor
+ * reference behind.
+ */
+export function summaryModel(): string {
+  return env("SRE_ONCALL_SUMMARY_MODEL") || primaryModel();
+}
+
+/** Provider half of the model FQN — e.g. `openai`, `anthropic`, `google-gemini`. */
+export function providerOf(modelFqn: string): string {
+  const [provider] = modelFqn.split("/");
+  if (provider === undefined || provider === "" || !modelFqn.includes("/")) {
+    throw new Error(
+      `Model "${modelFqn}" is not a provider/model FQN. Example: openai/gpt-5-6-sol`,
+    );
+  }
+  return provider;
+}
+
+/**
+ * Env var holding the API key for a provider, by the harness's own naming:
+ * `openai` → OPENAI_API_KEY, `google-gemini` → GOOGLE_GEMINI_API_KEY.
+ */
+export function apiKeyEnvFor(provider: string): string {
+  return `${provider.replace(/-/g, "_").toUpperCase()}_API_KEY`;
+}
+
 /** Every model this project needs configured on the harness. */
 export function modelNames(): string[] {
-  return [primaryModel(), env("SRE_ONCALL_SUMMARY_MODEL") || "anthropic/claude-sonnet-5"];
+  return [...new Set([primaryModel(), summaryModel()])];
 }
 
 export function agentSpec(): TrueForgeApi.AgentSpec {

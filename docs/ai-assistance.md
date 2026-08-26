@@ -30,6 +30,17 @@ generated approach was changed after review:
   than passing through the alert body — a deliberate narrowing, tested in
   `orchestrator/test/payload.test.ts`.
 
+## Model provider at runtime
+
+The agent's model is configuration, not code: `SRE_ONCALL_MODEL` names a
+`provider/model` FQN, and the provider half decides which provider is registered
+on the harness and which API key is read. The project has been provisioned
+against both `anthropic/claude-opus-5` and `openai/gpt-5-6-sol` without a code
+change. `npm run provision -- --list-models` lists what a given harness offers.
+
+This is separate from the authoring tools disclosed above, which wrote the code
+but are not part of what runs.
+
 ## What the authors can explain
 
 All of it — that is the standard the rules set. The parts worth asking about are
