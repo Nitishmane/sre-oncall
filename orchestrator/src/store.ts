@@ -23,6 +23,29 @@ export interface IncidentRow {
   postmortem_session_id: string | null;
 }
 
+export interface SlackSessionRow {
+  session_id: string;
+  channel: string;
+  thread_ts: string;
+  status_ts: string | null;
+  updated_at: number;
+}
+
+export interface ApprovalRow {
+  id: number;
+  session_id: string;
+  thread_id: string;
+  tool_call_id: string;
+  tool_label: string;
+  arguments: string;
+  channel: string | null;
+  message_ts: string | null;
+  requested_at: number;
+  decided_at: number | null;
+  decision: "approved" | "denied" | null;
+  decided_by: string | null;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS incidents (
   fingerprint            TEXT PRIMARY KEY,
@@ -45,6 +68,36 @@ CREATE TABLE IF NOT EXISTS triage_log (
 );
 CREATE INDEX IF NOT EXISTS triage_log_at ON triage_log (at);
 CREATE INDEX IF NOT EXISTS incidents_last_seen ON incidents (last_seen_at);
+
+-- Binds a harness session to the Slack thread that displays it, so a follow-up
+-- reply resumes the same session rather than starting a new one.
+CREATE TABLE IF NOT EXISTS slack_sessions (
+  session_id  TEXT PRIMARY KEY,
+  channel     TEXT NOT NULL,
+  thread_ts   TEXT NOT NULL,
+  status_ts   TEXT,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS slack_sessions_thread ON slack_sessions (channel, thread_ts);
+
+-- Audit log of every approval gate the agent hit: what it asked to do, who
+-- decided, and when. Survives restarts, and is what the /approvals endpoint
+-- serves to the console.
+CREATE TABLE IF NOT EXISTS approvals (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id    TEXT NOT NULL,
+  thread_id     TEXT NOT NULL,
+  tool_call_id  TEXT NOT NULL,
+  tool_label    TEXT NOT NULL,
+  arguments     TEXT NOT NULL,
+  channel       TEXT,
+  message_ts    TEXT,
+  requested_at  INTEGER NOT NULL,
+  decided_at    INTEGER,
+  decision      TEXT,
+  decided_by    TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS approvals_call ON approvals (session_id, tool_call_id);
 `;
 
 export function openStore(path: string) {
@@ -70,6 +123,32 @@ export function openStore(path: string) {
   const insertTriage = db.prepare("INSERT INTO triage_log (fingerprint, at) VALUES (?, ?)");
   const countTriages = db.prepare("SELECT COUNT(*) AS n FROM triage_log WHERE at >= ?");
   const recent = db.prepare("SELECT * FROM incidents WHERE last_seen_at >= ? ORDER BY last_seen_at DESC");
+
+  const bindSlack = db.prepare(`
+    INSERT INTO slack_sessions (session_id, channel, thread_ts, status_ts, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      channel = excluded.channel, thread_ts = excluded.thread_ts,
+      status_ts = COALESCE(excluded.status_ts, slack_sessions.status_ts),
+      updated_at = excluded.updated_at
+  `);
+  const slackByThread = db.prepare("SELECT * FROM slack_sessions WHERE channel = ? AND thread_ts = ?");
+  const slackBySession = db.prepare("SELECT * FROM slack_sessions WHERE session_id = ?");
+  const setStatusTs = db.prepare("UPDATE slack_sessions SET status_ts = ?, updated_at = ? WHERE session_id = ?");
+
+  const insertApproval = db.prepare(`
+    INSERT INTO approvals (session_id, thread_id, tool_call_id, tool_label, arguments,
+                           channel, message_ts, requested_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, tool_call_id) DO UPDATE SET
+      channel = excluded.channel, message_ts = excluded.message_ts
+  `);
+  const decideApproval = db.prepare(`
+    UPDATE approvals SET decision = ?, decided_by = ?, decided_at = ?
+    WHERE session_id = ? AND tool_call_id = ? AND decision IS NULL
+  `);
+  const selectApproval = db.prepare("SELECT * FROM approvals WHERE session_id = ? AND tool_call_id = ?");
+  const recentApprovals = db.prepare("SELECT * FROM approvals WHERE requested_at >= ? ORDER BY requested_at DESC");
 
   return {
     db,
@@ -111,6 +190,45 @@ export function openStore(path: string) {
     },
     incidentsSince(since: number): IncidentRow[] {
       return recent.all(since) as unknown as IncidentRow[];
+    },
+
+    bindSlackThread(sessionId: string, channel: string, threadTs: string, statusTs: string | null, now: number): void {
+      bindSlack.run(sessionId, channel, threadTs, statusTs, now);
+    },
+    slackSessionForThread(channel: string, threadTs: string): SlackSessionRow | undefined {
+      return slackByThread.get(channel, threadTs) as SlackSessionRow | undefined;
+    },
+    slackSession(sessionId: string): SlackSessionRow | undefined {
+      return slackBySession.get(sessionId) as SlackSessionRow | undefined;
+    },
+    setStatusMessage(sessionId: string, statusTs: string, now: number): void {
+      setStatusTs.run(statusTs, now, sessionId);
+    },
+
+    recordApprovalRequest(request: {
+      sessionId: string; threadId: string; toolCallId: string;
+      toolLabel: string; arguments: string;
+      channel: string | null; messageTs: string | null;
+    }, now: number): void {
+      insertApproval.run(
+        request.sessionId, request.threadId, request.toolCallId,
+        request.toolLabel, request.arguments,
+        request.channel, request.messageTs, now,
+      );
+    },
+    /** Returns false when the approval was already decided — the guard against double-clicks. */
+    recordApprovalDecision(
+      sessionId: string, toolCallId: string,
+      decision: "approved" | "denied", decidedBy: string, now: number,
+    ): boolean {
+      const result = decideApproval.run(decision, decidedBy, now, sessionId, toolCallId);
+      return result.changes > 0;
+    },
+    approval(sessionId: string, toolCallId: string): ApprovalRow | undefined {
+      return selectApproval.get(sessionId, toolCallId) as ApprovalRow | undefined;
+    },
+    approvalsSince(since: number): ApprovalRow[] {
+      return recentApprovals.all(since) as unknown as ApprovalRow[];
     },
     close(): void {
       db.close();

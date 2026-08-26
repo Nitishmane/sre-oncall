@@ -18,7 +18,7 @@ function bootServer() {
   const store = openStore(":memory:");
   const prompts: string[] = [];
   const harness = {
-    startSession: async (prompt: string) => { prompts.push(prompt); return "sess-1"; },
+    startSession: async (prompt: string) => { prompts.push(prompt); return { sessionId: "sess-1", turnId: "turn-1" }; },
     health: async () => true,
   } as unknown as Harness;
   const pipeline = createPipeline({ config, log: createLogger("error"), store, harness, sleep: async () => {} });

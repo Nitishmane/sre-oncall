@@ -26,7 +26,7 @@ function fakeHarness() {
     startSession: async (prompt: string) => {
       prompts.push(prompt);
       counter += 1;
-      return `sess-${counter}`;
+      return { sessionId: `sess-${counter}`, turnId: `turn-${counter}` };
     },
   } as unknown as Harness;
   return { harness, prompts };
@@ -229,7 +229,7 @@ test("firing and resolved for one fingerprint never run concurrently", async () 
       order.push(`${kind}-start`);
       if (kind === "healing") await healingHeld;
       order.push(`${kind}-end`);
-      return `sess-${order.length}`;
+      return { sessionId: `sess-${order.length}`, turnId: `turn-${order.length}` };
     },
   } as unknown as Harness;
 
@@ -257,7 +257,7 @@ test("a failing session does not wedge the fingerprint's queue", async () => {
     startSession: async () => {
       calls += 1;
       if (calls === 1) throw new Error("harness down");
-      return "sess-ok";
+      return { sessionId: "sess-ok", turnId: "turn-ok" };
     },
   } as unknown as Harness;
 

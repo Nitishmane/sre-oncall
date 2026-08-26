@@ -37,7 +37,7 @@ never at the harness itself, which has no login in local mode.
 
 | Path | What it is |
 |---|---|
-| `orchestrator/` | The webhook receiver and session broker. Verifies alerts, applies admission policy, starts harness sessions, proxies the chat console. |
+| `orchestrator/` | The webhook receiver and session broker. Verifies alerts, applies admission policy, starts harness sessions, runs the Slack bot, proxies the chat console. |
 | `agent/` | The SRE-Oncall agent definition: system prompt, MCP attachments, approval policy, and an idempotent provisioning script. |
 | `skills/sre-runbooks/` | Runbooks per failure signature, plus the triage-report, postmortem and handoff formats. Loaded by the harness as a git-backed skill. |
 | `mcp/` | Local stdio→HTTP bridges for the MCP servers the harness can only reach over a URL. |
@@ -72,6 +72,11 @@ npm run provision
 ./demo-env/scripts/inject-fault.sh errors
 ```
 
+The Slack bot starts with the orchestrator when `SLACK_BOT_TOKEN` and
+`SLACK_APP_TOKEN` are set — see `docs/slack-setup.md` for the app manifest,
+scopes, and how to restrict who may approve remediation. Without those tokens
+the pipeline runs headless.
+
 `inject-fault.sh` takes `errors`, `latency`, `leak`, or `crash`. Each maps to one
 alert rule and one runbook. `heal-reset.sh` returns the service to steady state,
 which resolves the alert and triggers the postmortem session.
@@ -97,7 +102,11 @@ dropped silently if they self-resolve.
 
 **Approval gates are structural.** Every MCP attachment declares
 `requireApprovalForTools`, so the harness pauses the turn rather than the agent
-choosing to ask. Tools that page a human (`n8n-tools`) are gated in full.
+choosing to ask. Tools that page a human (`n8n-tools`) are gated in full. A gate
+is written to an audit table *before* it is shown, so the record survives a
+Slack outage; decisions are claimed atomically, so two people clicking Approve
+and Deny at the same moment cannot both submit. Read the log at
+`GET /approvals?hours=24`.
 
 ## Prior art
 

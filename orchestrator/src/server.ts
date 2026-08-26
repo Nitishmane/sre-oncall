@@ -36,9 +36,12 @@ export function createApp({ config, log, store, pipeline, harness }: ServerDeps)
 
   // Operator-facing: recent incidents, for the handoff panel in the chatbox.
   app.get("/incidents", requireBearer(config.TRUEFORGE_BRIDGE_TOKEN), (req, res) => {
-    const hours = Number(req.query["hours"] ?? 24);
-    const since = Date.now() - (Number.isFinite(hours) ? hours : 24) * 3_600_000;
-    res.json({ incidents: store.incidentsSince(since) });
+    res.json({ incidents: store.incidentsSince(windowStart(req.query["hours"])) });
+  });
+
+  // The approval audit log: every gate the agent hit, and who decided it.
+  app.get("/approvals", requireBearer(config.TRUEFORGE_BRIDGE_TOKEN), (req, res) => {
+    res.json({ approvals: store.approvalsSince(windowStart(req.query["hours"])) });
   });
 
   app.use((req, res) => {
@@ -46,4 +49,11 @@ export function createApp({ config, log, store, pipeline, harness }: ServerDeps)
   });
 
   return app;
+}
+
+/** Clamps a `?hours=` query into a sane lookback window. */
+function windowStart(raw: unknown): number {
+  const hours = Number(raw ?? 24);
+  const clamped = Number.isFinite(hours) ? Math.min(Math.max(hours, 1), 24 * 30) : 24;
+  return Date.now() - clamped * 3_600_000;
 }

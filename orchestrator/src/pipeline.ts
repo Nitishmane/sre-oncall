@@ -1,11 +1,20 @@
 import type { Config } from "./config.ts";
 import type { Logger } from "./logger.ts";
 import type { Store } from "./store.ts";
-import type { Harness } from "./trueforge.ts";
+import type { Harness, StartedTurn } from "./trueforge.ts";
 import { createKeyedQueue, createSemaphore } from "./concurrency.ts";
 import { decideFiring, stillFiringAfterDelay } from "./alerts/filter.ts";
 import { healingPrompt, postmortemPrompt, handoffPrompt } from "./prompts.ts";
 import type { NormalizedAlert } from "./alerts/payload.ts";
+
+/** Told about every session the pipeline starts, so surfaces can follow it. */
+export type SessionListener = (started: {
+  sessionId: string;
+  turnId: string;
+  kind: "healing" | "postmortem" | "handoff";
+  ruleName: string;
+  fingerprint: string;
+}) => void;
 
 export interface PipelineDeps {
   config: Config;
@@ -15,6 +24,7 @@ export interface PipelineDeps {
   now?: () => number;
   /** Injectable so tests don't wait out real flap delays. */
   sleep?: (ms: number) => Promise<void>;
+  onSessionStarted?: SessionListener;
 }
 
 export interface AlertOutcome {
@@ -38,6 +48,23 @@ export function createPipeline(deps: PipelineDeps) {
   const queue = createKeyedQueue();
   const slots = createSemaphore(config.MAX_CONCURRENT_SESSIONS);
 
+  /** A surface that throws must not take an incident down with it. */
+  function announce(
+    started: StartedTurn,
+    kind: "healing" | "postmortem" | "handoff",
+    ruleName: string,
+    fingerprint: string,
+  ): void {
+    try {
+      deps.onSessionStarted?.({ ...started, kind, ruleName, fingerprint });
+    } catch (err) {
+      log.warn("session listener failed", {
+        sessionId: started.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   async function runHealing(alert: NormalizedAlert): Promise<AlertOutcome> {
     const decision = decideFiring(alert, { config, store, now });
 
@@ -57,13 +84,14 @@ export function createPipeline(deps: PipelineDeps) {
     }
 
     return slots.run(async () => {
-      const sessionId = await harness.startSession(healingPrompt(alert), {
+      const started = await harness.startSession(healingPrompt(alert), {
         kind: "healing",
         fingerprint: alert.fingerprint,
         rule: alert.ruleName,
       });
-      store.recordTriage(alert.fingerprint, sessionId, now());
-      return { fingerprint: alert.fingerprint, action: "triage" as const, sessionId };
+      store.recordTriage(alert.fingerprint, started.sessionId, now());
+      announce(started, "healing", alert.ruleName, alert.fingerprint);
+      return { fingerprint: alert.fingerprint, action: "triage" as const, sessionId: started.sessionId };
     });
   }
 
@@ -82,12 +110,13 @@ export function createPipeline(deps: PipelineDeps) {
     await sleep(config.POSTMORTEM_DELAY_SECONDS * 1000);
 
     return slots.run(async () => {
-      const sessionId = await harness.startSession(
+      const started = await harness.startSession(
         postmortemPrompt(alert, incident.healing_session_id),
         { kind: "postmortem", fingerprint: alert.fingerprint, rule: alert.ruleName },
       );
-      store.recordPostmortem(alert.fingerprint, sessionId);
-      return { fingerprint: alert.fingerprint, action: "postmortem" as const, sessionId };
+      store.recordPostmortem(alert.fingerprint, started.sessionId);
+      announce(started, "postmortem", alert.ruleName, alert.fingerprint);
+      return { fingerprint: alert.fingerprint, action: "postmortem" as const, sessionId: started.sessionId };
     });
   }
 
@@ -117,7 +146,14 @@ export function createPipeline(deps: PipelineDeps) {
   }
 
   async function runHandoff(windowHours: number): Promise<string> {
-    return slots.run(() => harness.startSession(handoffPrompt(windowHours), { kind: "handoff", windowHours }));
+    return slots.run(async () => {
+      const started = await harness.startSession(handoffPrompt(windowHours), {
+        kind: "handoff",
+        windowHours,
+      });
+      announce(started, "handoff", "OncallHandoff", "handoff");
+      return started.sessionId;
+    });
   }
 
   return {

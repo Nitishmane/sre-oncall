@@ -30,11 +30,27 @@ const schema = z.object({
   ALERT_SKIP_PATTERNS: z.string().default("^Watchdog$"),
   /** Seconds to wait after `resolved` before drafting the postmortem. */
   POSTMORTEM_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(60),
+
+  /** Slack (Socket Mode). Both tokens must be present for the bot to start. */
+  SLACK_BOT_TOKEN: z.string().startsWith("xoxb-").optional(),
+  SLACK_APP_TOKEN: z.string().startsWith("xapp-").optional(),
+  /** Channel where alert-triggered sessions announce themselves. */
+  SLACK_INCIDENT_CHANNEL: z.string().optional(),
+  /**
+   * Slack user IDs allowed to decide approval gates. When empty, any workspace
+   * member may approve — the approval prompt says so out loud.
+   */
+  SLACK_APPROVER_IDS: z
+    .string()
+    .default("")
+    .transform((raw) => raw.split(",").map((id) => id.trim()).filter((id) => id !== "")),
 });
 
 export type Config = z.infer<typeof schema> & {
   skipPattern: RegExp | null;
   delayPattern: RegExp | null;
+  /** True when both Slack tokens are configured. */
+  slackEnabled: boolean;
 };
 
 function toRegExp(source: string): RegExp | null {
@@ -55,5 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...parsed.data,
     skipPattern: toRegExp(parsed.data.ALERT_SKIP_PATTERNS),
     delayPattern: toRegExp(parsed.data.ALERT_DELAY_PATTERNS),
+    slackEnabled:
+      parsed.data.SLACK_BOT_TOKEN !== undefined && parsed.data.SLACK_APP_TOKEN !== undefined,
   };
 }
