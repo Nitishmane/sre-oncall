@@ -38,6 +38,9 @@ n8n-data/
 *.db
 *.log
 
+# ── Agent worktrees (git checkouts, never part of the tree) ──
+.claude/worktrees/
+
 # ── OS / editor ─────────────────────────────────────────
 .DS_Store
 Thumbs.db

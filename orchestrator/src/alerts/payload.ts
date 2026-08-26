@@ -60,6 +60,24 @@ function sanitizeIdent(value: string | undefined, pattern: RegExp): string | nul
 }
 
 /**
+ * Timestamps get the same treatment as identifiers, because they are no longer
+ * store-only: the postmortem prompt frames `startsAt`/`endsAt` so the agent can
+ * compute MTTR when Grafana's own history has aged out. Anything reaching a
+ * prompt has to be shape-checked first, whatever it is nominally a "timestamp".
+ *
+ * Grafana also sends a zero value (`0001-01-01T00:00:00Z`) for an alert that has
+ * not ended, which is not a time at all — it becomes null here rather than
+ * turning into a 2000-year outage in someone's MTTR column.
+ */
+function sanitizeTimestamp(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return null;
+  if (parsed <= 0) return null;
+  return new Date(parsed).toISOString();
+}
+
+/**
  * Deterministic fallback fingerprint for senders that omit one: a hash of the
  * sorted label set, matching how Alertmanager derives its own.
  */
@@ -86,8 +104,8 @@ export async function normalizeAlerts(payload: WebhookPayload): Promise<Normaliz
         fingerprint,
         ruleName: sanitizeIdent(alert.labels["alertname"], IDENT) ?? "unknown",
         orgId,
-        startsAt: alert.startsAt ?? null,
-        endsAt: alert.endsAt ?? null,
+        startsAt: sanitizeTimestamp(alert.startsAt),
+        endsAt: sanitizeTimestamp(alert.endsAt),
       } satisfies NormalizedAlert;
     }),
   );
