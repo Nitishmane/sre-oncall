@@ -42,6 +42,15 @@ const schema = z.object({
   /** Seconds to wait after `resolved` before drafting the postmortem. */
   POSTMORTEM_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(60),
 
+  /**
+   * Hours between automatic on-call handoff sessions (e.g. 12 for a twice-daily
+   * shift change). Unset disables the schedule — `POST /handoff` still works
+   * on demand. A fixed interval, not a wall-clock time of day, so it needs no
+   * timezone and is trivial to test with an injected clock; each run covers
+   * the interval that just elapsed.
+   */
+  HANDOFF_INTERVAL_HOURS: optional(z.coerce.number().int().positive()),
+
   /** Slack (Socket Mode). Both tokens must be present for the bot to start. */
   SLACK_BOT_TOKEN: optional(z.string().startsWith("xoxb-")),
   SLACK_APP_TOKEN: optional(z.string().startsWith("xapp-")),

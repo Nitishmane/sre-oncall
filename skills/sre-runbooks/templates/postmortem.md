@@ -54,7 +54,14 @@ Rules:
 
 - Every timeline row cites its source, because facts from live `get_events` and
   facts from Loki have different reliability after an hour.
-- MTTR is computed from timestamps you retrieved, never estimated.
+- MTTR is computed from timestamps you retrieved, never estimated. Prefer
+  Grafana's own alert state history. If it disagrees with, or has aged out
+  and lacks, the `incident_started_at` / `incident_resolved_at` you were
+  given in the prompt, say so and use the given values — they were captured
+  by the orchestrator at the moment the webhook fired, so they don't depend
+  on Grafana's history retention. `healing_started_at` has no Grafana
+  equivalent at all (it is this platform's own session start, not an alert
+  event) — use it for the response-time part of the timeline, not for MTTR.
 - Follow-ups are actions, not aspirations. "Add an alert on working-set memory
   above 80% of limit" is an action; "improve memory monitoring" is not.
 - Blameless: describe what the system allowed, not who did it.

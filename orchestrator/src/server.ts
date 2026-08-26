@@ -44,6 +44,19 @@ export function createApp({ config, log, store, pipeline, harness }: ServerDeps)
     res.json({ approvals: store.approvalsSince(windowStart(req.query["hours"])) });
   });
 
+  // On-demand handoff: the scheduled one (config.HANDOFF_INTERVAL_HOURS) covers
+  // routine shift changes; this covers "someone is leaving early" and demos.
+  app.post("/handoff", requireBearer(config.TRUEFORGE_BRIDGE_TOKEN), (req, res) => {
+    const hours = clampHours((req.body as Record<string, unknown> | undefined)?.["windowHours"]);
+    pipeline
+      .runHandoff(hours)
+      .then((sessionId) => res.status(202).json({ sessionId, windowHours: hours }))
+      .catch((err: unknown) => {
+        log.error("on-demand handoff failed", { error: err instanceof Error ? err.message : String(err) });
+        res.status(502).json({ error: "harness unreachable" });
+      });
+  });
+
   app.use((req, res) => {
     res.status(404).json({ error: "not found", path: req.path });
   });
@@ -51,9 +64,13 @@ export function createApp({ config, log, store, pipeline, harness }: ServerDeps)
   return app;
 }
 
+/** Clamps a caller-supplied hour count into a sane range, defaulting to a day. */
+function clampHours(raw: unknown): number {
+  const hours = Number(raw ?? 24);
+  return Number.isFinite(hours) ? Math.min(Math.max(hours, 1), 24 * 30) : 24;
+}
+
 /** Clamps a `?hours=` query into a sane lookback window. */
 function windowStart(raw: unknown): number {
-  const hours = Number(raw ?? 24);
-  const clamped = Number.isFinite(hours) ? Math.min(Math.max(hours, 1), 24 * 30) : 24;
-  return Date.now() - clamped * 3_600_000;
+  return Date.now() - clampHours(raw) * 3_600_000;
 }

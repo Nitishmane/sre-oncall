@@ -4,6 +4,7 @@ import { openStore } from "./store.ts";
 import { createHarness } from "./trueforge.ts";
 import { createPipeline, type SessionListener } from "./pipeline.ts";
 import { createApp } from "./server.ts";
+import { startHandoffScheduler, type HandoffScheduler } from "./scheduler.ts";
 import { createSlackApp, type SlackApp } from "./slack/app.ts";
 import { join } from "node:path";
 
@@ -43,8 +44,19 @@ if (config.slackEnabled) {
   log.info("slack disabled (SLACK_BOT_TOKEN / SLACK_APP_TOKEN not set)");
 }
 
+// Handoffs are optional: without an interval, POST /handoff is still there
+// for on-demand use, but nothing fires on its own.
+let scheduler: HandoffScheduler | null = null;
+if (config.HANDOFF_INTERVAL_HOURS !== undefined) {
+  scheduler = startHandoffScheduler({ pipeline, log, intervalHours: config.HANDOFF_INTERVAL_HOURS });
+  log.info("handoff schedule active", { intervalHours: config.HANDOFF_INTERVAL_HOURS });
+} else {
+  log.info("handoff schedule disabled (HANDOFF_INTERVAL_HOURS not set)");
+}
+
 function shutdown(signal: string) {
   log.info("shutting down", { signal });
+  scheduler?.stop();
   void slack?.stop().catch(() => {
     // Already disconnected; nothing to do.
   });

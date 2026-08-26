@@ -202,6 +202,24 @@ test("resolved alerts produce a postmortem only after a healing session", async 
   store.close();
 });
 
+test("the postmortem prompt carries the orchestrator's own incident timestamps", async () => {
+  const store = openStore(":memory:");
+  const t = harnessUnderTest(testConfig(), store);
+
+  t.pipeline.ingest([alert()]);
+  await settle();
+  t.advance(25 * 60_000); // healing took 25 minutes
+  t.pipeline.ingest([alert({ status: "resolved", endsAt: "2026-08-25T10:30:00Z" })]);
+  await settle();
+
+  const postmortem = t.prompts[1]!;
+  assert.match(postmortem, /incident_first_seen_at: \d{4}-\d{2}-\d{2}T/);
+  assert.match(postmortem, /incident_started_at: 2026-08-25T10:00:00Z/, "the alert's own startsAt, not re-derived");
+  assert.match(postmortem, /incident_resolved_at: 2026-08-25T10:30:00Z/);
+  assert.match(postmortem, /healing_started_at: \d{4}-\d{2}-\d{2}T/, "no Grafana equivalent, so it must come from here");
+  store.close();
+});
+
 test("a postmortem is written once per incident", async () => {
   const store = openStore(":memory:");
   const { pipeline, prompts } = harnessUnderTest(testConfig(), store);
