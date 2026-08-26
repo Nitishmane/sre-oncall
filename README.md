@@ -33,6 +33,19 @@ alert path never leaves the machine. The single ngrok tunnel is reserved for the
 authenticated chat console, and terminates at the orchestrator's `/chat` proxy —
 never at the harness itself, which has no login in local mode.
 
+## Status
+
+The orchestrator, the admission policy, the concurrency control, the trust
+boundary, the approval-gate audit log, and the console's auth wall are built
+and covered by 66 automated tests, and pieces of them have been exercised
+against a live TrueForge harness and a live kind cluster. What hasn't
+happened yet: a real healing session, start to finish, with the agent
+actually investigating an alert and proposing a fix — that needs a funded
+model-provider key, which this environment doesn't have. See
+`docs/technical-writeup.md` for exactly what's verified and what isn't, and
+`docs/demo-script.md` for how the demo handles that honestly if it's still
+true on recording day.
+
 ## Layout
 
 | Path | What it is |
@@ -145,3 +158,10 @@ from a production internal Slack SRE agent; the anonymized analysis is in
 
 This project was built with AI coding assistants, as the hackathon rules permit
 and require to be disclosed. See `docs/ai-assistance.md`.
+
+## Submission materials
+
+`docs/technical-writeup.md` (architecture and the decisions worth explaining),
+`docs/demo-script.md` (the timed script for the demo video, including what's
+still blocked on a missing credential), and `docs/submission-checklist.md`
+(every required submission component, mapped to its current state).
