@@ -30,9 +30,16 @@ shape to be stable.
 
 - The demo service runs in namespace `demo`, deployment `demo-service`, managed
   by the ArgoCD application `demo-service`.
-- Prometheus is reached through the Grafana MCP (`query_prometheus`), not
-  directly. Kubernetes events older than about an hour live in Loki under
-  `{job="kubernetes-events"}`.
+- Prometheus is reached through the Grafana MCP (`query_prometheus`, and
+  `query_prometheus_histogram` for latency quantiles), not directly. Alert rules
+  and their current state come from `alerting_manage_rules`. Kubernetes events
+  older than about an hour live in Loki, reachable with `query_loki_logs` under
+  `{job="kubernetes-events"}`. Panels render as images with `get_panel_image` —
+  useful for embedding evidence in a postmortem.
+- Live cluster state comes from the Kubernetes MCP: `pods_list_in_namespace`,
+  `pods_get`, `events_list`, and `pods_log` (pass `previous: true` to read the
+  container that died). Mutations go through `resources_create_or_update`,
+  `resources_scale` and `resources_delete` — all gated.
 - Every mutation is gated. Propose, wait for approval, then act, then verify.
 - "Verified" means the alerting expression itself crossed back under its
   threshold — not that a pod went Ready.

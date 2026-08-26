@@ -30,6 +30,7 @@ __pycache__/
 .data/
 demo-env/.rendered/
 kubeconfig*
+mcp/.kube-config-container
 *.kubeconfig
 n8n-data/
 *.sqlite

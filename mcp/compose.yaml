@@ -8,14 +8,20 @@
 
 name: sre-oncall-mcp
 
+# Ports 8100-8104. Deliberately clear of 8000, which the kind cluster maps to
+# the demo service, and of 8080, which the orchestrator uses.
+
 services:
   mcp-grafana:
     image: mcp/grafana:latest
-    command: ["-t", "streamable-http", "--address", "0.0.0.0:8000"]
+    command: ["-t", "streamable-http", "--address", "0.0.0.0:8100"]
     environment:
-      GRAFANA_URL: ${GRAFANA_URL:?set GRAFANA_URL in .env}
+      # NOT ${GRAFANA_URL}: that is the host-side URL used by the setup scripts
+      # and Terraform. From inside a container, `localhost` is the container.
+      GRAFANA_URL: ${MCP_GRAFANA_UPSTREAM_URL:-http://host.docker.internal:3000}
       GRAFANA_SERVICE_ACCOUNT_TOKEN: ${GRAFANA_TOKEN:?set GRAFANA_TOKEN in .env}
-    ports: ["127.0.0.1:8000:8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["127.0.0.1:8100:8100"]
     restart: unless-stopped
 
   mcp-kubernetes:
@@ -29,11 +35,14 @@ services:
       - --outputTransport
       - streamableHttp
       - --port
-      - "8001"
+      - "8101"
     volumes:
-      # Read-only, and pointed at the kind context only.
-      - ${KUBECONFIG_PATH:-${HOME}/.kube/config}:/kube/config:ro
-    ports: ["127.0.0.1:8001:8001"]
+      # Read-only. kind writes a kubeconfig whose server is 127.0.0.1:<port>,
+      # which means nothing inside a container — bootstrap-mcp.sh rewrites it to
+      # the node's container address before mounting.
+      - ${KUBECONFIG_PATH:-./.kube-config-container}:/kube/config:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["127.0.0.1:8101:8101"]
     restart: unless-stopped
 
   mcp-argocd:
@@ -47,28 +56,22 @@ services:
       - --outputTransport
       - streamableHttp
       - --port
-      - "8002"
+      - "8102"
     environment:
-      ARGOCD_BASE_URL: ${ARGOCD_BASE_URL}
+      ARGOCD_BASE_URL: ${MCP_ARGOCD_UPSTREAM_URL:-https://host.docker.internal:8443}
       ARGOCD_API_TOKEN: ${ARGOCD_API_TOKEN}
-    ports: ["127.0.0.1:8002:8002"]
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"  # kind's ArgoCD serves a self-signed cert
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["127.0.0.1:8102:8102"]
     restart: unless-stopped
 
+  # No bridge needed: this server speaks streamable HTTP itself. Wrapping it in
+  # supergateway meant nesting `docker run` inside a container that has no docker
+  # CLI, which failed with EPIPE the moment a request arrived.
   mcp-terraform:
-    image: node:22-alpine
-    command:
-      - npx
-      - -y
-      - supergateway
-      - --stdio
-      - "docker run -i --rm hashicorp/terraform-mcp-server:latest"
-      - --outputTransport
-      - streamableHttp
-      - --port
-      - "8003"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    ports: ["127.0.0.1:8003:8003"]
+    image: hashicorp/terraform-mcp-server:latest
+    command: ["streamable-http", "--transport-port", "8103", "--transport-host", "0.0.0.0"]
+    ports: ["127.0.0.1:8103:8103"]
     restart: unless-stopped
 
   mcp-notion:
@@ -82,9 +85,9 @@ services:
       - --outputTransport
       - streamableHttp
       - --port
-      - "8004"
+      - "8104"
     environment:
       # Internal integration token, shared to the Postmortems database only.
       NOTION_TOKEN: ${NOTION_TOKEN}
-    ports: ["127.0.0.1:8004:8004"]
+    ports: ["127.0.0.1:8104:8104"]
     restart: unless-stopped

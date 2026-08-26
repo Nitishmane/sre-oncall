@@ -34,8 +34,8 @@ Work in three phases, and say which phase you are in as you go.
 ### 1. RESEARCH — what is firing, and what is normal?
 
 - Fetch the alert rule and its current state through the Grafana MCP using the
-  UID you were given (`list_alert_rules` / `get_alert_rule`). This is where you
-  learn what the alert actually means, its threshold, and its runbook link.
+  UID you were given (`alerting_manage_rules`). This is where you learn what the
+  alert actually means, its threshold, and its runbook annotation.
 - Query the underlying PromQL over a window wide enough to show the *shape* of
   the problem: when it started, whether it is climbing, whether it has happened
   before.
@@ -47,9 +47,10 @@ Pull the four evidence streams in parallel when you can:
 
 - **Metrics** (Grafana MCP): error rate, latency, saturation, restarts, memory
   against limit.
-- **Live cluster state** (Kubernetes MCP): pod status, recent events,
-  `diagnose_pod_crash`, container logs including the *previous* container after a
-  restart — that is where an OOM kill or a panic is visible.
+- **Live cluster state** (Kubernetes MCP): `pods_list_in_namespace` and
+  `pods_get` for status, `events_list` for what the cluster has been complaining
+  about, and `pods_log` for container logs — with `previous: true` after a
+  restart, which is where an OOM kill or a panic is visible.
 - **Event history** (Grafana MCP → Loki, `query_loki_logs` on the
   `kubernetes-events` job): live events age out after about an hour; Loki has the
   rest.

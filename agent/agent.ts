@@ -36,14 +36,17 @@ export const mcpServers: McpDefinition[] = [
       type: "remote",
       description:
         "Grafana: alert rules and state history, Prometheus/PromQL queries, Loki log and Kubernetes-event queries, dashboards, panel rendering, silences and annotations.",
-      url: env("MCP_GRAFANA_URL") || "http://127.0.0.1:8000/mcp",
+      url: env("MCP_GRAFANA_URL") || "http://127.0.0.1:8100/mcp",
     },
     attachment: {
       name: "grafana",
       enableTools: ["@all"],
       // Silences and annotations change what other humans see. Gate them.
       requireApprovalForTools: ["@write", "@destructive"],
-      preloadTools: ["list_alert_rules", "get_alert_rule", "query_prometheus", "query_loki_logs"],
+      // Verified against a live mcp/grafana server: these are the exact tool
+      // names it exposes. A preload entry that does not match a real tool is
+      // silently ignored, which is worse than an error.
+      preloadTools: ["alerting_manage_rules", "query_prometheus", "query_loki_logs"],
     },
   },
   {
@@ -52,14 +55,16 @@ export const mcpServers: McpDefinition[] = [
       type: "remote",
       description:
         "Live Kubernetes access to the demo cluster: pod and deployment status, recent events, container logs (including previous containers after a restart), crash diagnostics, rollout history.",
-      url: env("MCP_KUBERNETES_URL") || "http://127.0.0.1:8001/mcp",
+      url: env("MCP_KUBERNETES_URL") || "http://127.0.0.1:8101/mcp",
     },
     attachment: {
       name: "kubernetes",
       // Reading is free; anything that mutates the cluster stops for a human.
       enableTools: ["@all"],
       requireApprovalForTools: ["@write", "@destructive"],
-      preloadTools: ["list_pods", "get_events", "get_pod_logs"],
+      // Verified against a live kubernetes-mcp-server. Note `pods_log` takes a
+      // `previous` flag — that is where an OOM kill or a panic is visible.
+      preloadTools: ["events_list", "pods_list_in_namespace", "pods_log"],
     },
   },
   {
@@ -68,7 +73,7 @@ export const mcpServers: McpDefinition[] = [
       type: "remote",
       description:
         "ArgoCD: application sync status, deploy history, and rollback. Use it to answer 'what changed just before this started?'.",
-      url: env("MCP_ARGOCD_URL") || "http://127.0.0.1:8002/mcp",
+      url: env("MCP_ARGOCD_URL") || "http://127.0.0.1:8102/mcp",
     },
     attachment: {
       name: "argocd",
@@ -84,7 +89,7 @@ export const mcpServers: McpDefinition[] = [
       type: "remote",
       description:
         "Terraform registry and provider documentation, plus plan/validate for the demo infrastructure module. Use it when the fix belongs in infrastructure-as-code rather than in a manifest.",
-      url: env("MCP_TERRAFORM_URL") || "http://127.0.0.1:8003/mcp",
+      url: env("MCP_TERRAFORM_URL") || "http://127.0.0.1:8103/mcp",
     },
     attachment: {
       name: "terraform",
@@ -115,7 +120,7 @@ export const mcpServers: McpDefinition[] = [
       type: "remote",
       description:
         "Notion: create and update pages in the Postmortems database (incident, date, severity, status, MTTR, root cause, timeline, follow-ups).",
-      url: env("MCP_NOTION_URL") || "http://127.0.0.1:8004/mcp",
+      url: env("MCP_NOTION_URL") || "http://127.0.0.1:8104/mcp",
     },
     attachment: {
       name: "notion",

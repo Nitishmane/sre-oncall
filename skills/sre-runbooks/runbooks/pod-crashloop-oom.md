@@ -7,12 +7,12 @@ is firing. Restart count is climbing. The pod may be Ready between restarts.
 
 The single fact that decides everything below is *why* the container exited.
 
-1. Kubernetes MCP — pod status and last terminated state. `OOMKilled` means the
-   kernel killed it for exceeding its memory limit. `Error` with a non-zero exit
-   code means the process died on its own.
-2. Kubernetes MCP — **previous** container logs (`previous: true`). The current
-   container's logs are from after the restart and will tell you nothing. A
-   panic, a failed migration, or a missing env var is visible here.
+1. Kubernetes MCP `pods_get` — pod status and last terminated state. `OOMKilled`
+   means the kernel killed it for exceeding its memory limit. `Error` with a
+   non-zero exit code means the process died on its own.
+2. Kubernetes MCP `pods_log` with `previous: true`. The current container's logs
+   are from after the restart and will tell you nothing. A panic, a failed
+   migration, or a missing env var is visible here.
 3. Grafana MCP — memory against the limit, over a window long enough to show the
    shape:
 
