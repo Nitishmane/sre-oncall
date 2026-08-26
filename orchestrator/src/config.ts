@@ -17,8 +17,11 @@ const schema = z.object({
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   DATA_DIR: z.string().default(".data"),
 
-  /** TrueForge harness (local mode listens on 8790). */
-  TRUEFORGE_API_URL: z.string().url().default("http://127.0.0.1:8790"),
+  /**
+   * TrueForge harness. Local mode listens on `localhost:8790` — note that on
+   * macOS it binds IPv6 only, so `127.0.0.1` will not connect. Use the name.
+   */
+  TRUEFORGE_API_URL: z.string().url().default("http://localhost:8790"),
   TRUEFORGE_TOKEN: optional(z.string()),
   TRUEFORGE_AGENT_NAME: z.string().default("sre-oncall"),
 

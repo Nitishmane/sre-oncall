@@ -172,14 +172,23 @@ export const skills: TrueForgeApi.SkillManifest[] = [
   },
 ];
 
+/** Model FQN for the agent's main loop. Opus: multi-step work under uncertainty. */
+export function primaryModel(): string {
+  return env("SRE_ONCALL_MODEL") || "anthropic/claude-opus-5";
+}
+
+/** Every model this project needs configured on the harness. */
+export function modelNames(): string[] {
+  return [primaryModel(), env("SRE_ONCALL_SUMMARY_MODEL") || "anthropic/claude-sonnet-5"];
+}
+
 export function agentSpec(): TrueForgeApi.AgentSpec {
   const instructions = readFileSync(join(here, "prompts", "base.md"), "utf8");
   const configured = mcpServers.filter(isConfigured);
 
   return {
     model: {
-      // Opus for multi-step investigation under uncertainty.
-      name: env("SRE_ONCALL_MODEL") || "anthropic/claude-opus-5",
+      name: primaryModel(),
       params: { temperature: 0 },
     },
     instructions,
