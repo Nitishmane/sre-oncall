@@ -1,0 +1,15 @@
+# Fault configuration for the demo service.
+#
+# This is the object `scripts/inject-fault.sh` edits. Changing it and restarting
+# the deployment is a real Kubernetes change with a real rollout — which is what
+# the agent has to find in the event log and undo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-service-faults
+  namespace: demo
+data:
+  FAULT_ERROR_RATE: "0"
+  FAULT_LATENCY_MS: "0"
+  FAULT_LEAK_MB_PER_MINUTE: "0"
+  FAULT_CRASH_ON_START: "false"

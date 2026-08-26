@@ -1,0 +1,42 @@
+# ── Secrets: never commit ──────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_token*
+secrets/
+
+# ── Node / Next.js / Vercel ─────────────────────────────
+node_modules/
+.next/
+.vercel/
+dist/
+
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+.venv/
+*.pyc
+
+# ── Terraform (state + tfvars can embed secrets) ────────
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!example.tfvars
+
+# ── Local infra / runtime state ─────────────────────────
+.data/
+demo-env/.rendered/
+kubeconfig*
+*.kubeconfig
+n8n-data/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# ── OS / editor ─────────────────────────────────────────
+.DS_Store
+Thumbs.db

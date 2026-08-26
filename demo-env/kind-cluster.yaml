@@ -1,0 +1,18 @@
+# Single-node kind cluster for the demo. Ports are mapped to the host so
+# Grafana, ArgoCD and the demo service can be reached without port-forwarding
+# during a live demo (one fewer terminal to babysit).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: sre-oncall
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - { containerPort: 30300, hostPort: 3000, protocol: TCP }  # Grafana
+      - { containerPort: 30808, hostPort: 8081, protocol: TCP }  # ArgoCD UI
+      - { containerPort: 30800, hostPort: 8000, protocol: TCP }  # demo-service

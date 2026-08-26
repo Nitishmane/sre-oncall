@@ -1,0 +1,159 @@
+# Grafana-managed alert rules for the demo service.
+#
+# These are deliberately faster than the kube-prometheus-stack built-ins (which
+# use 10–15 minute `for:` durations): each fires within a couple of minutes so a
+# full inject → alert → heal → resolve cycle fits in a demo.
+#
+# Every rule maps to one runbook in skills/sre-runbooks/runbooks/.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: demo-service
+    folder: SRE-Oncall
+    interval: 30s
+    rules:
+      - uid: demo-high-error-rate
+        title: HighErrorRate
+        condition: threshold
+        for: 1m
+        labels:
+          severity: critical
+          service: demo-service
+        annotations:
+          summary: 5xx ratio for demo-service is above 5%
+          runbook: high-error-rate
+        data:
+          - refId: ratio
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: ratio
+              instant: true
+              expr: |
+                sum(rate(http_requests_total{service="demo-service", status=~"5.."}[2m]))
+                  /
+                clamp_min(sum(rate(http_requests_total{service="demo-service"}[2m])), 0.001)
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: ratio
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+
+      - uid: demo-high-latency-p99
+        title: HighLatencyP99
+        condition: threshold
+        for: 2m
+        labels:
+          severity: warning
+          service: demo-service
+        annotations:
+          summary: p99 latency for demo-service is above 500ms
+          runbook: connection-pool-exhaustion
+        data:
+          - refId: p99
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: p99
+              instant: true
+              expr: |
+                histogram_quantile(0.99,
+                  sum by (le) (rate(http_request_duration_seconds_bucket{service="demo-service"}[5m])))
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: p99
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+
+      - uid: demo-oom-killed
+        title: OOMKilled
+        condition: threshold
+        for: 0s
+        labels:
+          severity: critical
+          service: demo-service
+        annotations:
+          summary: A demo-service container was killed for exceeding its memory limit
+          runbook: pod-crashloop-oom
+        data:
+          - refId: oom
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: oom
+              instant: true
+              expr: |
+                max(kube_pod_container_status_last_terminated_reason{
+                  namespace="demo", reason="OOMKilled"})
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: oom
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: demo-container-restarts
+        title: ContainerRestartsSpiking
+        condition: threshold
+        for: 1m
+        labels:
+          severity: warning
+          service: demo-service
+        annotations:
+          summary: demo-service containers are restarting repeatedly
+          runbook: pod-crashloop-oom
+        data:
+          - refId: restarts
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: restarts
+              instant: true
+              expr: |
+                max(increase(kube_pod_container_status_restarts_total{namespace="demo"}[10m]))
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: restarts
+              conditions:
+                - evaluator: { type: gt, params: [3] }
+
+      - uid: demo-replicas-unavailable
+        title: ReplicasUnavailable
+        condition: threshold
+        for: 2m
+        labels:
+          severity: critical
+          service: demo-service
+        annotations:
+          summary: demo-service has fewer ready replicas than desired
+          runbook: event-only-failures
+        data:
+          - refId: missing
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: missing
+              instant: true
+              expr: |
+                kube_deployment_spec_replicas{namespace="demo", deployment="demo-service"}
+                  - kube_deployment_status_replicas_ready{namespace="demo", deployment="demo-service"}
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: missing
+              conditions:
+                - evaluator: { type: gt, params: [0] }

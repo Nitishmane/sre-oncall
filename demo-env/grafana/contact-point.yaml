@@ -1,0 +1,33 @@
+# Grafana Alerting provisioning: where alerts go.
+#
+# Grafana runs inside the kind cluster and posts to the orchestrator on the host,
+# so this hop never leaves the machine and needs no tunnel. On Docker Desktop the
+# host is reachable as `host.docker.internal`; `scripts/bootstrap.sh` verifies
+# this and prints the working address if it differs.
+#
+# Rendered by scripts/render-grafana-config.sh, which substitutes
+# ${GRAFANA_WEBHOOK_BEARER} from .env — never commit the filled-in file.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: sre-oncall
+    receivers:
+      - uid: sre-oncall-webhook
+        type: webhook
+        settings:
+          url: http://host.docker.internal:8080/webhook/grafana
+          httpMethod: POST
+          # The orchestrator refuses anything without this bearer. It is the
+          # trust boundary: only Grafana can start a healing session.
+          authorization_scheme: Bearer
+          authorization_credentials: ${GRAFANA_WEBHOOK_BEARER}
+
+policies:
+  - orgId: 1
+    receiver: sre-oncall
+    group_by: [alertname, namespace, pod]
+    # Fast enough for a live demo; the orchestrator does its own flap handling.
+    group_wait: 10s
+    group_interval: 30s
+    repeat_interval: 4h

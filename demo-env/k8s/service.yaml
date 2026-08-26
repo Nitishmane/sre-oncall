@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-service
+  namespace: demo
+  labels:
+    app: demo-service
+spec:
+  selector:
+    app: demo-service
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

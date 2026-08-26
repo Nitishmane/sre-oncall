@@ -1,0 +1,18 @@
+# Tells the kube-prometheus-stack Prometheus to scrape the demo service.
+# `release: kube-prometheus-stack` is the selector the stack's Prometheus uses by
+# default; if you installed the chart under another release name, match it here.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-service
+  namespace: demo
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: demo-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s

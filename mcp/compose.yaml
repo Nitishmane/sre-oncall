@@ -1,0 +1,90 @@
+# Local stdio → streamable-HTTP bridges for the MCP servers TrueForge can only
+# reach over a URL. See mcp/README.md.
+#
+#   docker compose -f mcp/compose.yaml --env-file ../.env up -d
+#
+# Everything binds to 127.0.0.1: these processes hold cluster and SaaS
+# credentials and must not be reachable from outside this machine.
+
+name: sre-oncall-mcp
+
+services:
+  mcp-grafana:
+    image: mcp/grafana:latest
+    command: ["-t", "streamable-http", "--address", "0.0.0.0:8000"]
+    environment:
+      GRAFANA_URL: ${GRAFANA_URL:?set GRAFANA_URL in .env}
+      GRAFANA_SERVICE_ACCOUNT_TOKEN: ${GRAFANA_TOKEN:?set GRAFANA_TOKEN in .env}
+    ports: ["127.0.0.1:8000:8000"]
+    restart: unless-stopped
+
+  mcp-kubernetes:
+    image: node:22-alpine
+    command:
+      - npx
+      - -y
+      - supergateway
+      - --stdio
+      - "npx -y kubernetes-mcp-server@latest --kubeconfig /kube/config"
+      - --outputTransport
+      - streamableHttp
+      - --port
+      - "8001"
+    volumes:
+      # Read-only, and pointed at the kind context only.
+      - ${KUBECONFIG_PATH:-${HOME}/.kube/config}:/kube/config:ro
+    ports: ["127.0.0.1:8001:8001"]
+    restart: unless-stopped
+
+  mcp-argocd:
+    image: node:22-alpine
+    command:
+      - npx
+      - -y
+      - supergateway
+      - --stdio
+      - "npx -y argocd-mcp@latest stdio"
+      - --outputTransport
+      - streamableHttp
+      - --port
+      - "8002"
+    environment:
+      ARGOCD_BASE_URL: ${ARGOCD_BASE_URL}
+      ARGOCD_API_TOKEN: ${ARGOCD_API_TOKEN}
+    ports: ["127.0.0.1:8002:8002"]
+    restart: unless-stopped
+
+  mcp-terraform:
+    image: node:22-alpine
+    command:
+      - npx
+      - -y
+      - supergateway
+      - --stdio
+      - "docker run -i --rm hashicorp/terraform-mcp-server:latest"
+      - --outputTransport
+      - streamableHttp
+      - --port
+      - "8003"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports: ["127.0.0.1:8003:8003"]
+    restart: unless-stopped
+
+  mcp-notion:
+    image: node:22-alpine
+    command:
+      - npx
+      - -y
+      - supergateway
+      - --stdio
+      - "npx -y @notionhq/notion-mcp-server"
+      - --outputTransport
+      - streamableHttp
+      - --port
+      - "8004"
+    environment:
+      # Internal integration token, shared to the Postmortems database only.
+      NOTION_TOKEN: ${NOTION_TOKEN}
+    ports: ["127.0.0.1:8004:8004"]
+    restart: unless-stopped

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.wemakedevs.org)",
+      "WebSearch",
+      "WebFetch(domain:www.truefoundry.com)",
+      "WebFetch(domain:trueforge.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.qodo.ai)",
+      "WebFetch(domain:developer.pagerduty.com)",
+      "WebFetch(domain:venturebeat.com)",
+      "WebFetch(domain:wavect.io)",
+      "WebFetch(domain:inventivehq.com)",
+      "WebFetch(domain:www.pagerduty.com)",
+      "WebFetch(domain:support.pagerduty.com)",
+      "WebFetch(domain:docs.qodo.ai)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}
