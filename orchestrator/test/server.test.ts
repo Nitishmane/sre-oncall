@@ -128,6 +128,56 @@ test("the chat bridge and incident list require the bridge bearer, not the webho
   }
 });
 
+test("an on-demand handoff starts a session and defaults to a 24-hour window", async () => {
+  const srv = bootServer();
+  try {
+    const res = await fetch(`${srv.url}/handoff`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${BRIDGE_BEARER}` },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 202);
+    const body = await res.json() as { sessionId: string; windowHours: number };
+    assert.equal(body.sessionId, "sess-1");
+    assert.equal(body.windowHours, 24);
+    assert.match(srv.prompts[0]!, /last 24 hours/);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("an on-demand handoff honors a caller-supplied window, clamped to a sane range", async () => {
+  const srv = bootServer();
+  try {
+    const res = await fetch(`${srv.url}/handoff`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${BRIDGE_BEARER}` },
+      body: JSON.stringify({ windowHours: 999999 }),
+    });
+    const body = await res.json() as { windowHours: number };
+    assert.equal(body.windowHours, 24 * 30, "clamped to the same ceiling as /incidents and /approvals");
+  } finally {
+    await srv.close();
+  }
+});
+
+test("the handoff endpoint requires the bridge bearer, not the webhook one", async () => {
+  const srv = bootServer();
+  try {
+    const unauthenticated = await fetch(`${srv.url}/handoff`, { method: "POST" });
+    assert.equal(unauthenticated.status, 401);
+
+    const wrongBearer = await fetch(`${srv.url}/handoff`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${WEBHOOK_BEARER}` },
+    });
+    assert.equal(wrongBearer.status, 401);
+    assert.equal(srv.prompts.length, 0);
+  } finally {
+    await srv.close();
+  }
+});
+
 test("healthz is open, and reports queue depth", async () => {
   const srv = bootServer();
   try {
@@ -169,6 +219,24 @@ test("a malformed Slack token is still rejected", () => {
     } as NodeJS.ProcessEnv),
     /SLACK_BOT_TOKEN/,
   );
+});
+
+test("an unset handoff interval disables the schedule without failing validation", () => {
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    HANDOFF_INTERVAL_HOURS: "",
+  } as NodeJS.ProcessEnv);
+  assert.equal(config.HANDOFF_INTERVAL_HOURS, undefined);
+});
+
+test("a configured handoff interval is coerced to a number", () => {
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    HANDOFF_INTERVAL_HOURS: "12",
+  } as NodeJS.ProcessEnv);
+  assert.equal(config.HANDOFF_INTERVAL_HOURS, 12);
 });
 
 test("approver ids are parsed and trimmed", () => {
