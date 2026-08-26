@@ -41,7 +41,7 @@ never at the harness itself, which has no login in local mode.
 | `agent/` | The SRE-Oncall agent definition: system prompt, MCP attachments, approval policy, and an idempotent provisioning script. |
 | `skills/sre-runbooks/` | Runbooks per failure signature, plus the triage-report, postmortem and handoff formats. Loaded by the harness as a git-backed skill. |
 | `mcp/` | Local stdio→HTTP bridges for the MCP servers the harness can only reach over a URL. |
-| `demo-env/` | kind cluster, the fault-injectable demo service, Grafana alert rules, and the inject/reset scripts. |
+| `demo-env/` | kind cluster, the fault-injectable demo service, the ArgoCD application, the Terraform-managed alerting config, and the inject/reset scripts. |
 | `index.html` | The public architecture explainer. Static, and deliberately unable to invoke anything. |
 
 ## Running it
@@ -55,8 +55,9 @@ npm install
 # 1. the demo cluster: kind + kube-prometheus-stack + ArgoCD + demo-service
 ./demo-env/scripts/bootstrap.sh
 
-# 2. Grafana alert rules and the webhook contact point
-./demo-env/scripts/render-grafana-config.sh
+# 2. Grafana alerting (Terraform) and ArgoCD wiring
+./demo-env/scripts/setup-grafana.sh    # mints a token, applies demo-env/terraform
+./demo-env/scripts/wire-argocd.sh      # demo-service as an ArgoCD Application
 
 # 3. the MCP bridges (only those whose credentials are in .env start)
 docker compose -f mcp/compose.yaml --env-file .env up -d
@@ -99,6 +100,11 @@ promise chain — a `firing` and its `resolved` can't race — and a global sema
 caps concurrent sessions. Repeat alerts are dropped by a per-incident cooldown,
 and an hourly limit bounds the worst case. Flap-prone rules are held briefly and
 dropped silently if they self-resolve.
+
+**One owner per thing.** ArgoCD owns the workload, Terraform owns the Grafana
+alerting config, and nothing owns both. That is what makes each of the agent's
+two remediation paths unambiguous: a bad deploy is an ArgoCD rollback, a wrong
+threshold is an HCL change with a `terraform plan` attached to the PR.
 
 **Approval gates are structural.** Every MCP attachment declares
 `requireApprovalForTools`, so the harness pauses the turn rather than the agent

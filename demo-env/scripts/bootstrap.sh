@@ -36,10 +36,17 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
 
 step "ArgoCD"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+# Server-side apply: the ApplicationSet CRD is larger than the annotation
+# `kubectl apply` writes for its last-applied-configuration, so a client-side
+# apply fails with "metadata.annotations: Too long".
+kubectl apply -n argocd --server-side --force-conflicts \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl -n argocd rollout status deployment/argocd-server --timeout=5m
 
 step "demo service"
+# The namespace has to exist before anything in it: `kubectl apply -f <dir>`
+# processes files alphabetically, which would otherwise put namespace.yaml last.
+kubectl apply -f "$root/demo-env/k8s/namespace.yaml"
 kubectl apply -f "$root/demo-env/k8s/"
 kubectl -n demo rollout status deployment/demo-service --timeout=3m
 
@@ -64,9 +71,11 @@ Ready.
   Demo app   kubectl -n demo port-forward svc/demo-service 8000:8000
 
 Next:
-  1. ./render-grafana-config.sh   and load the alert rules + contact point
-  2. npm run dev:orchestrator      (host, port 8080)
-  3. npx @truefoundry/trueforge    (host, port 8790)
-  4. npm run provision             (registers the agent, MCP servers, skills)
-  5. ./inject-fault.sh errors      (watch the pipeline run)
+  1. ./setup-grafana.sh          mints a Grafana token and applies the alerting
+                                 config from demo-env/terraform
+  2. ./wire-argocd.sh            registers demo-service as an ArgoCD Application
+  3. npm run dev:orchestrator    (host, port 8080)
+  4. npx @truefoundry/trueforge  (host, port 8790)
+  5. npm run provision           (registers the agent, MCP servers, skills)
+  6. ./inject-fault.sh errors    (watch the pipeline run)
 EOF

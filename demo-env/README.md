@@ -35,12 +35,24 @@ a live switch would let the demo cheat.
 within about two minutes, and that `resolved` webhook is what starts the
 postmortem session.
 
-## Grafana provisioning
+## Who owns what
 
-`grafana/alert-rules.yaml` and `grafana/contact-point.yaml` are templates: the
-contact point contains `${GRAFANA_WEBHOOK_BEARER}`. `render-grafana-config.sh`
-substitutes from `.env` into `demo-env/.rendered/` (gitignored). Never commit the
-rendered files.
+| System | Owns | Why |
+|---|---|---|
+| **ArgoCD** | the workload (`k8s/`) | A fault injection becomes a real sync the agent can find in deploy history and roll back |
+| **Terraform** | Grafana alerting (`terraform/`) | Threshold and rule changes are reviewable HCL with a `terraform plan` the agent can attach to a PR |
+
+Nothing owns both, so there is no drift to reconcile — and each kind of fix has
+exactly one place it belongs.
+
+`setup-grafana.sh` mints a Grafana service-account token over the admin API,
+discovers the Prometheus datasource UID, and runs `terraform apply`. The token is
+shown once; put it in `.env` as `GRAFANA_TOKEN` for the Grafana MCP. The webhook
+bearer comes from `.env` and is never written to a file in the repo.
+
+`wire-argocd.sh` points `argocd/application.yaml` at this repository's own git
+remote and prints the steps for minting the ArgoCD API token the MCP needs.
+Auto-sync is deliberately off: it would silently revert a rollback.
 
 The demo rules evaluate every 30s with `for:` durations of 0–2 minutes, so a full
 cycle fits in a demo. The kube-prometheus-stack built-ins (`KubePodCrashLooping`

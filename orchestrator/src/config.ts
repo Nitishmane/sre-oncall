@@ -4,6 +4,14 @@ import { z } from "zod";
  * Every knob the orchestrator reads. Secrets come from `.env` at the repo root
  * (gitignored) — never from files inside the repo.
  */
+/**
+ * A `.env` file spells "not configured" as `KEY=`, which reaches us as an empty
+ * string rather than as `undefined`. Treat the two the same, or every optional
+ * credential fails validation the moment someone copies the template.
+ */
+const optional = <T extends z.ZodType>(inner: T) =>
+  z.preprocess((value) => (value === "" ? undefined : value), inner.optional());
+
 const schema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -11,7 +19,7 @@ const schema = z.object({
 
   /** TrueForge harness (local mode listens on 8790). */
   TRUEFORGE_API_URL: z.string().url().default("http://127.0.0.1:8790"),
-  TRUEFORGE_TOKEN: z.string().optional(),
+  TRUEFORGE_TOKEN: optional(z.string()),
   TRUEFORGE_AGENT_NAME: z.string().default("sre-oncall"),
 
   /** Bearer the Grafana/Alertmanager webhook contact point must present. */
@@ -32,10 +40,10 @@ const schema = z.object({
   POSTMORTEM_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(60),
 
   /** Slack (Socket Mode). Both tokens must be present for the bot to start. */
-  SLACK_BOT_TOKEN: z.string().startsWith("xoxb-").optional(),
-  SLACK_APP_TOKEN: z.string().startsWith("xapp-").optional(),
+  SLACK_BOT_TOKEN: optional(z.string().startsWith("xoxb-")),
+  SLACK_APP_TOKEN: optional(z.string().startsWith("xapp-")),
   /** Channel where alert-triggered sessions announce themselves. */
-  SLACK_INCIDENT_CHANNEL: z.string().optional(),
+  SLACK_INCIDENT_CHANNEL: optional(z.string()),
   /**
    * Slack user IDs allowed to decide approval gates. When empty, any workspace
    * member may approve — the approval prompt says so out loud.

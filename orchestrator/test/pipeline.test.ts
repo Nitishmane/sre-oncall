@@ -279,3 +279,42 @@ test("a failing session does not wedge the fingerprint's queue", async () => {
   assert.equal(store.get("fp-1")?.healing_session_id, "sess-ok");
   store.close();
 });
+
+test("a harness outage is retried, but still counts against the hourly limit", async () => {
+  const store = openStore(":memory:");
+  let calls = 0;
+  const harness = {
+    startSession: async () => {
+      calls += 1;
+      throw new Error("harness down");
+    },
+  } as unknown as Harness;
+
+  let clock = 1_000_000;
+  const pipeline = createPipeline({
+    config: testConfig({ ALERT_MAX_PER_HOUR: "3" }),
+    log: silent, store, harness,
+    now: () => clock,
+    sleep: async () => {},
+  });
+
+  // Grafana re-delivers every group_interval while the alert keeps firing.
+  for (let i = 0; i < 6; i += 1) {
+    pipeline.ingest([alert()]);
+    await settle();
+    clock += 30_000;
+  }
+
+  assert.equal(calls, 3, "retries are bounded by the hourly limit, not unbounded");
+  assert.equal(store.get("fp-1")?.last_triaged_at, null, "a failed attempt sets no cooldown");
+  store.close();
+});
+
+test("a successful triage sets the cooldown", async () => {
+  const store = openStore(":memory:");
+  const t = harnessUnderTest(testConfig(), store);
+  t.pipeline.ingest([alert()]);
+  await settle();
+  assert.equal(store.get("fp-1")?.last_triaged_at, 1_000_000);
+  store.close();
+});

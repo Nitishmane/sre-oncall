@@ -176,10 +176,22 @@ export function openStore(path: string) {
     get(fingerprint: string): IncidentRow | undefined {
       return selectOne.get(fingerprint) as IncidentRow | undefined;
     },
-    /** Records a triage for both the per-incident cooldown and the hourly rate limit. */
+    /**
+     * Counts an attempt against the hourly rate limit. Called *before* the
+     * harness is asked for a session, so a harness that is down cannot be
+     * retried without bound — the limit exists to cap load, and a failed
+     * attempt costs the same as a successful one.
+     */
+    recordTriageAttempt(fingerprint: string, now: number): void {
+      insertTriage.run(fingerprint, now);
+    },
+    /**
+     * Marks a triage as having actually started. Only this sets the per-incident
+     * cooldown, so a transient failure can be retried on the next delivery
+     * rather than being suppressed for an hour.
+     */
     recordTriage(fingerprint: string, sessionId: string | null, now: number): void {
       markTriaged.run(now, sessionId, fingerprint);
-      insertTriage.run(fingerprint, now);
     },
     recordPostmortem(fingerprint: string, sessionId: string): void {
       markPostmortem.run(sessionId, fingerprint);

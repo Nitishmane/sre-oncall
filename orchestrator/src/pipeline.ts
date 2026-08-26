@@ -84,6 +84,9 @@ export function createPipeline(deps: PipelineDeps) {
     }
 
     return slots.run(async () => {
+      // Counted before the call: an attempt against a dead harness still costs
+      // a slot in the hourly budget.
+      store.recordTriageAttempt(alert.fingerprint, now());
       const started = await harness.startSession(healingPrompt(alert), {
         kind: "healing",
         fingerprint: alert.fingerprint,

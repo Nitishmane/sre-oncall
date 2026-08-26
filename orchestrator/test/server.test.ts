@@ -140,3 +140,42 @@ test("healthz is open, and reports queue depth", async () => {
     await srv.close();
   }
 });
+
+test("empty optional credentials mean 'not configured', not 'invalid'", () => {
+  // This is how a `.env` copied from the template arrives: keys present, values
+  // empty. It must not fail validation.
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    SLACK_BOT_TOKEN: "",
+    SLACK_APP_TOKEN: "",
+    SLACK_INCIDENT_CHANNEL: "",
+    TRUEFORGE_TOKEN: "",
+    SLACK_APPROVER_IDS: "",
+  } as NodeJS.ProcessEnv);
+
+  assert.equal(config.SLACK_BOT_TOKEN, undefined);
+  assert.equal(config.slackEnabled, false);
+  assert.deepEqual(config.SLACK_APPROVER_IDS, []);
+});
+
+test("a malformed Slack token is still rejected", () => {
+  assert.throws(
+    () => loadConfig({
+      GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+      TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+      SLACK_BOT_TOKEN: "definitely-not-a-slack-token",
+      SLACK_APP_TOKEN: "xapp-1-A",
+    } as NodeJS.ProcessEnv),
+    /SLACK_BOT_TOKEN/,
+  );
+});
+
+test("approver ids are parsed and trimmed", () => {
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    SLACK_APPROVER_IDS: "U_ALICE, U_BOB ,,U_CAROL",
+  } as NodeJS.ProcessEnv);
+  assert.deepEqual(config.SLACK_APPROVER_IDS, ["U_ALICE", "U_BOB", "U_CAROL"]);
+});
