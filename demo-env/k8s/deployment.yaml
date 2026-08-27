@@ -14,6 +14,9 @@ spec:
     metadata:
       labels:
         app: demo-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
     spec:
       containers:
         - name: demo-service
@@ -32,6 +35,15 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              # Deliberately snug: the leak fault reaches it in about two minutes,
+              # which keeps the demo inside a three-minute video.
+              cpu: 500m
+              memory: 128Mi
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             initialDelaySeconds: 2
