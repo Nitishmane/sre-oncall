@@ -59,7 +59,25 @@ function textOf(content: TrueForgeApi.ModelMessageEventContent | null | undefine
 export function toolLabel(call: TrueForgeApi.ToolCall): string {
   const info = call.toolInfo;
   if (info.type === "mcp") return `${info.serverName}.${info.name}`;
-  return call.function.name;
+  // The harness proxies MCP calls through its own `call_tool`, so the function
+  // name alone reads "call_tool" — true, and useless to whoever has to decide.
+  // The server and tool being invoked are inside the arguments.
+  const proxied = proxiedLabel(call.function.name, call.function.arguments);
+  return proxied ?? call.function.name;
+}
+
+/** `call_tool({mcp_server, tool_name, …})` -> `server.tool`, or null if it is not that. */
+function proxiedLabel(name: string, rawArguments: string): string | null {
+  if (name !== "call_tool" && name !== "get_tool_info") return null;
+  try {
+    const parsed: unknown = JSON.parse(rawArguments);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { mcp_server: server, tool_name: tool } = parsed as Record<string, unknown>;
+    if (typeof server !== "string" || typeof tool !== "string") return null;
+    return `${server}.${tool}`;
+  } catch {
+    return null;
+  }
 }
 
 /** Pretty-print tool arguments, which arrive as a JSON string of unknown shape. */

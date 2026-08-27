@@ -314,3 +314,42 @@ test("a tool call with no narration falls back to the agent's last words", () =>
   if (action?.kind !== "approval") return;
   assert.match(action.approval.rationale, /only change in the window/);
 });
+
+test("a proxied MCP call is labelled by the tool it actually invokes", () => {
+  const t = createTranslator("sess-proxy");
+  t.handle({
+    type: "model.message",
+    id: "evt-1",
+    createdAt: "2026-08-25T10:00:00Z",
+    threadId: "main",
+    finishReason: "tool_calls",
+    content: "Rolling back the bad sync.",
+    toolCalls: [
+      {
+        id: "call-1",
+        type: "function",
+        // How the harness actually proxies MCP calls: the useful name is inside.
+        function: {
+          name: "call_tool",
+          arguments: JSON.stringify({
+            mcp_server: "argocd",
+            tool_name: "rollback_application",
+            input: { app: "demo-service" },
+          }),
+        },
+        toolInfo: { type: "truefoundry-system", name: "call_tool" },
+      },
+    ],
+  } as never);
+
+  const [action] = t.handle({
+    type: "tool.approval_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:00:01Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-1", sourceEventId: "evt-1" }],
+  });
+  assert.equal(action?.kind, "approval");
+  if (action?.kind !== "approval") return;
+  assert.equal(action.approval.toolLabel, "argocd.rollback_application");
+});

@@ -36,6 +36,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "HighErrorRate"
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "1m"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
@@ -74,6 +78,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "HighLatencyP99"
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "2m"
     labels    = { severity = "warning", service = "demo-service" }
     annotations = {
@@ -112,6 +120,10 @@ resource "grafana_rule_group" "demo_service" {
     name = "OOMKilled"
     # No `for:` — one OOM kill is already the incident.
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "0s"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
@@ -146,6 +158,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "ContainerRestartsSpiking"
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "1m"
     labels    = { severity = "warning", service = "demo-service" }
     annotations = {
@@ -180,6 +196,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "ReplicasUnavailable"
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "2m"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {

@@ -41,8 +41,39 @@ export const mcpServers: McpDefinition[] = [
     attachment: {
       name: "grafana",
       enableTools: ["@all"],
-      // Silences and annotations change what other humans see. Gate them.
-      requireApprovalForTools: ["@write", "@destructive"],
+      // Gated by name rather than by `@write`, because this server bundles
+      // reads and writes into single tools: `alerting_manage_rules` is how you
+      // *read* a rule (`operation: "list"`) as well as how you delete one, so
+      // `@write` stopped the agent on the very first step of every
+      // investigation — it could not look at the alert that woke it.
+      //
+      // The trade-off is explicit: rule reads are ungated, so the operating
+      // rules forbid mutating alert rules in words rather than in policy.
+      // Everything that changes what other humans see, or that can reach
+      // arbitrary Grafana endpoints, stays gated.
+      requireApprovalForTools: [
+        "alerting_manage_routing",
+        "create_annotation",
+        "create_datasource",
+        "create_folder",
+        "create_incident",
+        "add_activity_to_incident",
+        "create_snapshot",
+        "delete_snapshot",
+        "install_plugin",
+        "grafana_api_request",
+        "update_dashboard",
+        "create_dashboard",
+        "delete_dashboard",
+        "delete_datasource",
+        "update_datasource",
+        // Deliberately NOT "@destructive": that group classifies
+        // `alerting_manage_rules` by what it *can* do, so it re-gated the
+        // read that every investigation begins with. Gating by name costs a
+        // list to maintain and buys an agent that can actually investigate.
+        // A name this server does not expose is inert here, so the list errs
+        // long on purpose.
+      ],
       // Verified against a live mcp/grafana server: these are the exact tool
       // names it exposes. A preload entry that does not match a real tool is
       // silently ignored, which is worse than an error.
@@ -143,7 +174,12 @@ export const mcpServers: McpDefinition[] = [
     attachment: {
       name: "notion",
       enableTools: ["@all"],
-      requireApprovalForTools: ["@destructive"],
+      // `@destructive` caught `API-post-search` — Notion's REST naming makes a
+      // *search* look like a mutation, and the group classifies on that shape.
+      // Every postmortem session stalled on a gate before it could find the
+      // database to write to. Writing a postmortem page is this agent's job,
+      // not a change to a live system, so only deletion is gated.
+      requireApprovalForTools: ["API-delete-a-block"],
       // Same caveat as ArgoCD: these are the names the server actually reports.
       // The `API-` prefix is Notion's own, not a convention of ours.
       preloadTools: ["API-post-search", "API-post-page", "API-patch-page"],
