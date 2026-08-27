@@ -34,6 +34,9 @@ export async function GET(req: Request): Promise<Response> {
         const res = await fetch(target, {
           headers: { authorization: `Bearer ${token}` },
           cache: "no-store",
+          // The panel polls; a hung orchestrator must fail fast rather than
+          // hold the request open and stack up retries behind it.
+          signal: AbortSignal.timeout(10_000),
         });
         return res.ok ? await res.json() : {};
       }),

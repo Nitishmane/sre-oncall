@@ -17,7 +17,12 @@ export function chatRouter(config: Config, log: Logger): Router {
 
   router.all("/{*path}", async (req, res) => {
     const upstreamPath = req.originalUrl.replace(/^\/chat/, "");
-    const target = new URL(upstreamPath || "/", config.TRUEFORGE_API_URL);
+    const target = safeTarget(upstreamPath, config.TRUEFORGE_API_URL);
+    if (target === null) {
+      log.warn("chat proxy refused a path", { path: upstreamPath });
+      res.status(400).json({ error: "bad path" });
+      return;
+    }
 
     const headers = new Headers();
     const accept = req.get("accept");
@@ -28,12 +33,21 @@ export function chatRouter(config: Config, log: Logger): Router {
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
 
+    // Bound the wait for response *headers* only. An SSE turn stays open for
+    // as long as the agent is thinking, so the timer is cleared the moment the
+    // upstream responds — a blanket request timeout would cut live streams off
+    // mid-investigation.
+    const abort = new AbortController();
+    const headerTimer = setTimeout(() => abort.abort(), HEADER_TIMEOUT_MS);
+
     try {
       const upstream = await fetch(target, {
         method: req.method,
         headers,
+        signal: abort.signal,
         ...(hasBody ? { body: JSON.stringify(req.body ?? {}) } : {}),
       });
+      clearTimeout(headerTimer);
 
       res.status(upstream.status);
       const upstreamType = upstream.headers.get("content-type");
@@ -59,6 +73,7 @@ export function chatRouter(config: Config, log: Logger): Router {
 
       res.send(Buffer.from(await upstream.arrayBuffer()));
     } catch (err) {
+      clearTimeout(headerTimer);
       log.error("chat proxy failed", {
         path: upstreamPath,
         error: err instanceof Error ? err.message : String(err),
@@ -68,4 +83,49 @@ export function chatRouter(config: Config, log: Logger): Router {
   });
 
   return router;
+}
+
+/** How long to wait for the harness to start responding. */
+const HEADER_TIMEOUT_MS = 30_000;
+
+/**
+ * Resolves the upstream URL for a proxied `/chat` path, or null if the path
+ * tries to leave the configured harness base.
+ *
+ * `new URL()` normalises `..` away, so `/chat/../incidents` would otherwise
+ * resolve to the orchestrator's *own* `/incidents` route — which is guarded by
+ * a different bearer than the one the caller presented. Mirrors the equivalent
+ * check in `web/lib/proxy.ts`.
+ */
+export function safeTarget(upstreamPath: string, base: string): URL | null {
+  if (upstreamPath.includes("\0")) return null;
+
+  let root: URL;
+  try {
+    root = new URL(base);
+  } catch {
+    return null;
+  }
+  if (root.protocol !== "http:" && root.protocol !== "https:") return null;
+
+  const [rawPath = "", ...rest] = (upstreamPath || "/").split("?");
+  for (const segment of rawPath.split("/")) {
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+    if (decoded === "." || decoded === "..") return null;
+    if (decoded.includes("\0")) return null;
+  }
+
+  const prefix = root.pathname.replace(/\/+$/, "");
+  const target = new URL(root.toString());
+  target.pathname = `${prefix}${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+  target.search = rest.length > 0 ? `?${rest.join("?")}` : "";
+
+  if (target.origin !== root.origin) return null;
+  if (prefix !== "" && !target.pathname.startsWith(`${prefix}/`)) return null;
+  return target;
 }
