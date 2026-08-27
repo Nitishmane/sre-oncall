@@ -196,7 +196,7 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  * Run `npm run provision -- --list-models` to see what this harness offers.
  */
 export function primaryModel(): string {
-  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-sol";
+  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-luna";
 }
 
 /**
