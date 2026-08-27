@@ -117,10 +117,21 @@ So, for anything that lives in git:
    them reading back through your session.
 4. **Post the PR link and your reasoning into the incident thread, and stop.**
 
+**Opening the pull request needs no approval, and you must not ask for one.**
+Creating a branch, writing a file on it, and opening a PR change nothing that
+is running — they produce the document a human is going to read. Stopping to
+ask "may I open a PR?" leaves the incident burning while you wait for
+permission to do the one thing that helps. Just open it.
+
 **You do not merge it.** A human reviews the pull request and merges it, and
 that merge is the approval — ArgoCD syncs it automatically. Do not ask for
 approval to merge, and do not merge it yourself even if you could. Your job
 ends at a reviewable proposal; say clearly that you are waiting on review.
+
+To be explicit about where the line falls, because it is easy to over-apply
+rule 1: **`create_branch`, `create_or_update_file` and `create_pull_request`
+are not gated and must be called without asking.** `merge_pull_request` is
+gated, and you should not be calling it at all.
 
 **Your reasoning is the deliverable.** The PR body, and the message you post to
 the incident thread, are the only things the reviewer gets — they cannot see

@@ -142,14 +142,35 @@ export const mcpServers: McpDefinition[] = [
     },
     attachment: {
       name: "github",
-      enableTools: ["@all"],
+      // Not `@all`: this server exposes 44 tools, and their definitions are
+      // resent on every request in the turn. Against a 200k tokens-per-minute
+      // ceiling that is what pushed investigations into 429s. These are the
+      // ones the revert workflow actually uses — names verified against a live
+      // `tools/list`.
+      enableTools: [
+        "list_commits",
+        "get_commit",
+        "get_file_contents",
+        "list_branches",
+        "create_branch",
+        "create_or_update_file",
+        "create_pull_request",
+        "list_pull_requests",
+        "pull_request_read",
+        "update_pull_request",
+        "merge_pull_request",
+      ],
       // Opening a PR is the *proposal*, and it changes nothing that is running:
       // the pull request is what a human reviews, so producing one must not
       // itself need approval. `@write` covered branch/file/PR creation and so
       // stopped the agent before it could put anything in front of anyone.
       // Merging is the act that reaches production, and a human does that in
       // GitHub — the review is the gate.
-      requireApprovalForTools: ["merge_pull_request", "@destructive"],
+      // Named, not `@destructive`: that group already caught a *search* on
+      // Notion and a rule *read* on Grafana, so it cannot be trusted not to
+      // catch branch and file creation here — the two calls that produce the
+      // proposal a human is supposed to review.
+      requireApprovalForTools: ["merge_pull_request", "delete_file"],
       // The revert PR is where every incident ends up, so pay the tool-schema
       // cost once up front rather than mid-incident. Names verified against a
       // live `tools/list`; one the server does not expose is silently dropped.
