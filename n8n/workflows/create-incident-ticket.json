@@ -1,0 +1,103 @@
+{
+  "name": "create-incident-ticket",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "/mcp/sre-oncall"
+      },
+      "id": "2ii0fdf1-gff1-6g14-d67h-1h1h8h8f8h8f",
+      "name": "MCP Server Trigger",
+      "type": "n8n-nodes-langchain.mcptrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "toolName": "create-incident-ticket",
+        "description": "Create an incident ticket in the tracking system with context from Prometheus alert",
+        "parameters": [
+          {
+            "name": "alert_rule",
+            "type": "string",
+            "description": "The name of the triggered alert rule"
+          },
+          {
+            "name": "service",
+            "type": "string",
+            "description": "The service or component affected"
+          },
+          {
+            "name": "metric_value",
+            "type": "string",
+            "description": "Current value of the metric that triggered the alert"
+          },
+          {
+            "name": "threshold",
+            "type": "string",
+            "description": "Alert threshold that was exceeded"
+          }
+        ]
+      },
+      "id": "3jj1geg2-hgg2-7h25-e78i-2i2i9i9g9i9g",
+      "name": "create-incident-ticket Tool",
+      "type": "n8n-nodes-langchain.toolCustomWorkflow",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "functionCode": "// Placeholder: in production, this creates a ticket in Jira/Linear\n// Updates a Slack thread and logs to Google Sheets\nreturn {\n  status: 'ticket_created',\n  ticket_id: 'INC-' + Math.floor(100000 + Math.random() * 900000),\n  service: $input.first().json.service,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "4kk2hfh3-ihh3-8i36-f89j-3j3j0j0h0j0h",
+      "name": "Execute",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        750,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "MCP Server Trigger": {
+      "main": [
+        [
+          {
+            "node": "create-incident-ticket Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create-incident-ticket Tool": {
+      "main": [
+        [
+          {
+            "node": "Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "hash": "def456",
+  "meta": {
+    "instanceId": "placeholder"
+  }
+}

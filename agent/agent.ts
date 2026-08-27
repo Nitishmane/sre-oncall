@@ -135,7 +135,7 @@ export const mcpServers: McpDefinition[] = [
       type: "remote",
       description:
         "Build n8n workflows from a natural-language description: search nodes, fetch templates, validate a workflow, then create and activate it.",
-      url: env("MCP_N8N_BUILDER_URL") || "http://127.0.0.1:3000/mcp",
+      url: env("MCP_N8N_BUILDER_URL") || "http://127.0.0.1:8105/mcp",
       auth: headerAuth({ Authorization: `Bearer ${env("N8N_MCP_AUTH_TOKEN")}` }),
     },
     attachment: {

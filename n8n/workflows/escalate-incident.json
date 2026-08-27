@@ -1,0 +1,98 @@
+{
+  "name": "escalate-incident",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "/mcp/sre-oncall"
+      },
+      "id": "5ll3igj4-jii4-9j47-g90k-4k4k1k1i1k1i",
+      "name": "MCP Server Trigger",
+      "type": "n8n-nodes-langchain.mcptrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "toolName": "escalate-incident",
+        "description": "Escalate an incident through the on-call chain: notify manager, director, then initiate war room",
+        "parameters": [
+          {
+            "name": "incident_id",
+            "type": "string",
+            "description": "The incident ID to escalate"
+          },
+          {
+            "name": "escalation_level",
+            "type": "number",
+            "description": "Escalation level (1=manager, 2=director, 3=VP)"
+          },
+          {
+            "name": "reason",
+            "type": "string",
+            "description": "Reason for escalation (e.g. 'unacknowledged_for_15m', 'expanding_impact')"
+          }
+        ]
+      },
+      "id": "6mm4jhk5-kjj5-0k58-h01l-5l5l2l2j2l2j",
+      "name": "escalate-incident Tool",
+      "type": "n8n-nodes-langchain.toolCustomWorkflow",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "functionCode": "// Placeholder: in production, this follows the escalation playbook\n// Sends notifications to manager -> director -> VP\n// Creates a war room meeting and invites all stakeholders\nreturn {\n  status: 'escalated',\n  incident_id: $input.first().json.incident_id,\n  escalation_level: $input.first().json.escalation_level,\n  notifications_sent: ['manager', 'director'],\n  war_room_created: true,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "7nn5kil6-lkk6-1l69-i12m-6m6m3m3k3m3k",
+      "name": "Execute",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        750,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "MCP Server Trigger": {
+      "main": [
+        [
+          {
+            "node": "escalate-incident Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "escalate-incident Tool": {
+      "main": [
+        [
+          {
+            "node": "Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "hash": "ghi789",
+  "meta": {
+    "instanceId": "placeholder"
+  }
+}
