@@ -1,0 +1,69 @@
+# n8n workflow automation: local self-hosted instance + MCP builder server.
+# Brought up with: docker compose -f n8n/compose.yaml --env-file ../.env up -d
+#
+# Two services:
+# - n8n: the editor and workflow execution engine (port 5678)
+# - n8n-mcp: the czlonkowski builder (MCP over HTTP, port 8105)
+#
+# Everything binds to 127.0.0.1 only. These containers talk to external SaaS
+# APIs (Slack, Twilio, PagerDuty) but do not expose their MCP endpoints to the LAN.
+# Only the orchestrator's authenticated chat proxy goes through ngrok.
+
+name: sre-oncall-n8n
+
+services:
+  # n8n workflow execution engine and editor UI.
+  # Volumes are named for persistence across restarts.
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      # Only localhost. Webhooks and MCP Server Trigger run on this port.
+      - "127.0.0.1:5678:5678"
+    environment:
+      # n8n listens on all interfaces by default. Bind to localhost only
+      # to avoid LAN exposure of the editor and API.
+      N8N_HOST: 127.0.0.1
+      # Webhooks: n8n generates URLs relative to this. For local dev, we
+      # call n8n on localhost; if a remote SaaS needs to call back, this
+      # becomes an ngrok domain (set in the orchestrator setup, not here).
+      WEBHOOK_URL: http://127.0.0.1:5678/
+      # Database: use SQLite locally (file-based, default). No external DB needed.
+      DB_TYPE: sqlite
+      # Store n8n's data (workflows, credentials, executions) in a named volume
+      # so they survive a restart.
+    volumes:
+      # Persistent state: workflows, executions, webhooks, credentials.
+      - n8n-data:/home/node/.n8n
+    restart: unless-stopped
+
+  # czlonkowski/n8n-mcp builder: exposes n8n as an MCP server,
+  # letting the SRE agent create and activate workflows from natural language.
+  # Using wangtengzhou/n8n-mcp fork (sync from czlonkowski/n8n-mcp).
+  n8n-mcp:
+    image: wangtengzhou/n8n-mcp:latest
+    ports:
+      # Port 8105: next free slot in the MCP range (8100-8104 are taken).
+      # Bind to localhost only; the MCP auth bearer is the only gate.
+      - "127.0.0.1:8105:3000"
+    environment:
+      # n8n-mcp expects these two to reach the n8n instance inside the network.
+      # Inside the container, "host.docker.internal" is the host machine.
+      N8N_API_URL: http://host.docker.internal:5678
+      N8N_API_KEY: ${N8N_API_KEY:?set N8N_API_KEY in .env}
+      # MCP auth: the client (TrueForge harness) sends this as Authorization: Bearer.
+      # Must be at least 32 characters (generated: openssl rand -hex 32).
+      MCP_AUTH_TOKEN: ${N8N_MCP_AUTH_TOKEN:?set N8N_MCP_AUTH_TOKEN in .env}
+      AUTH_TOKEN: ${N8N_MCP_AUTH_TOKEN:?set N8N_MCP_AUTH_TOKEN in .env}
+      # n8n-mcp serves HTTP Streamable (MCP over HTTP), not stdio.
+      MCP_MODE: http
+      PORT: 3000
+    extra_hosts:
+      # Reach the host machine from inside the container (for n8n itself).
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  # Named volume for n8n's persistent state. Survives container restarts
+  # as long as the volume isn't manually deleted.
+  n8n-data:
+    driver: local

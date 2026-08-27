@@ -1,0 +1,99 @@
+{
+  "name": "notify-oncall",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "/mcp/sre-oncall"
+      },
+      "id": "8ff7cbe8-dcc8-4d01-a34e-8e8e5e5c5e5c",
+      "name": "MCP Server Trigger",
+      "type": "n8n-nodes-langchain.mcptrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "toolName": "notify-oncall",
+        "description": "Send urgent notification to on-call engineer via Slack and SMS",
+        "parameters": [
+          {
+            "name": "incident_id",
+            "type": "string",
+            "description": "The incident ID or ticket number"
+          },
+          {
+            "name": "severity",
+            "type": "string",
+            "enum": ["P1", "P2", "P3"],
+            "description": "Incident severity level"
+          },
+          {
+            "name": "message",
+            "type": "string",
+            "description": "Alert message to send"
+          }
+        ]
+      },
+      "id": "9gg8dbe9-edd9-4e02-b45f-9f9f6f6d6f6d",
+      "name": "notify-oncall Tool",
+      "type": "n8n-nodes-langchain.toolCustomWorkflow",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "functionCode": "// Placeholder: in production, this would send to Slack + Twilio\n// For now, just log the incoming parameters\nreturn {\n  status: 'notification_sent',\n  incident_id: $input.first().json.incident_id,\n  channel: 'slack_and_sms'\n};"
+      },
+      "id": "1hh9ecf0-fee0-5f13-c56g-0g0g7g7e7g7e",
+      "name": "Execute",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        750,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "MCP Server Trigger": {
+      "main": [
+        [
+          {
+            "node": "notify-oncall Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify-oncall Tool": {
+      "main": [
+        [
+          {
+            "node": "Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "hash": "abc123",
+  "meta": {
+    "instanceId": "placeholder"
+  }
+}
