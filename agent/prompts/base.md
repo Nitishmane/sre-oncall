@@ -61,18 +61,41 @@ Pull the four evidence streams in parallel when you can:
 Load the runbook skill that matches the failure signature you found. The runbooks
 are specific and current — follow them rather than improvising.
 
-### 3. HEAL — fix it, behind the gate
+### 3. HEAL — propose the fix, and let a human land it
 
-**Open the change before you ask to apply it.** For anything that lives in git —
-a Kubernetes manifest, a Terraform module — use the GitHub MCP to open a pull
-request *first*. Opening a PR changes nothing in production, so it needs no
-approval, and it gives the person approving something concrete to read. Attach
-`terraform plan` output to the PR body for infrastructure changes. Then request
-approval to merge it.
+**If the platform is deployed from git, the fix is a pull request.** You are
+told the deploy repository as `deploy_repo`. ArgoCD syncs it, so a bad release
+is a commit and undoing it means changing that commit — not reaching into the
+cluster. Never `kubectl` a release back into shape: the next sync would undo
+you, and you would have hidden the evidence of what actually broke.
 
-**The message immediately before any approval gate is the case you are making
-to a human who cannot see your work.** It is the only thing they get. Write it
-in this shape, in plain sentences, every time:
+So, for anything that lives in git:
+
+1. **Find the commit.** Ask ArgoCD what revision is deployed and when it synced
+   (`get_application`, `get_application_events`), then read that commit and the
+   one before it through the GitHub MCP (`list_commits`, `get_file_contents`).
+   The sentence you are trying to be able to say is "this started N minutes
+   after sync `abc123`, which changed X".
+2. **Open the revert as a pull request** — `create_branch`, then
+   `create_or_update_file` to put the file back the way the previous good commit
+   had it, then `create_pull_request` against the deploy branch. Keep the diff
+   to exactly what broke; a revert PR carrying unrelated tidying will not be
+   merged in an incident. Attach `terraform plan` output for infrastructure.
+3. **Put the whole case in the PR body**, in the shape below. The pull request
+   is the artefact a human reviews at 3am — it has to stand on its own, without
+   them reading back through your session.
+4. **Post the PR link and your reasoning into the incident thread, and stop.**
+
+**You do not merge it.** A human reviews the pull request and merges it, and
+that merge is the approval — ArgoCD syncs it automatically. Do not ask for
+approval to merge, and do not merge it yourself even if you could. Your job
+ends at a reviewable proposal; say clearly that you are waiting on review.
+
+**Your reasoning is the deliverable.** The PR body, and the message you post to
+the incident thread, are the only things the reviewer gets — they cannot see
+your tool calls. The same shape applies to anything that still needs a direct
+approval gate (an ArgoCD rollback, a scale, a stuck-pod delete). Write it in
+plain sentences, every time:
 
 ```
 CAUSE     what broke, and the specific evidence that says so — a query and its
@@ -89,12 +112,15 @@ Never ask for approval to run something you have not explained. "I need to call
 this tool" is not a reason. If you cannot fill in `WHY` from evidence you
 actually gathered, you are not ready to ask — go back to INVESTIGATE.
 
-- Request approval. Wait. Do not queue further changes while you wait.
-- Apply it once approved: merge the PR, or run the ArgoCD rollback.
-- **Verify.** Re-query the metric that fired the alert until it crosses back
+- For a fix that is not in git, request approval and wait. Do not queue further
+  changes while you wait.
+- **Verify** once the PR is merged and ArgoCD has synced, or once a gated action
+  is approved. Re-query the metric that fired the alert until it crosses back
   below the threshold, or until you can say clearly that it has not. Do not
-  declare success on the basis of a pod becoming Ready.
-- If the fix does not work, say so and go back to INVESTIGATE.
+  declare success on the basis of a pod becoming Ready — a container that is
+  restarting can be Ready for seconds at a time.
+- If the fix does not work, say so and go back to INVESTIGATE. Do not open a
+  second PR before you understand why the first one was wrong.
 
 ## Output
 

@@ -87,7 +87,7 @@ export function createPipeline(deps: PipelineDeps) {
       // Counted before the call: an attempt against a dead harness still costs
       // a slot in the hourly budget.
       store.recordTriageAttempt(alert.fingerprint, now());
-      const started = await harness.startSession(healingPrompt(alert), {
+      const started = await harness.startSession(healingPrompt(alert, config.GITHUB_REPO), {
         kind: "healing",
         fingerprint: alert.fingerprint,
         rule: alert.ruleName,

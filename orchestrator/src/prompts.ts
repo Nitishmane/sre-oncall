@@ -18,17 +18,27 @@ import type { NormalizedAlert } from "./alerts/payload.ts";
  * labels, annotations, or any cluster object's name goes in here.
  */
 
-export function healingPrompt(alert: NormalizedAlert): string {
+export function healingPrompt(alert: NormalizedAlert, deployRepo?: string): string {
   return [
     "A Grafana alert is firing. Heal it.",
     "",
     `alert_rule_uid: ${alert.ruleUid ?? "unknown"}`,
     `fingerprint: ${alert.fingerprint}`,
     `org_id: ${alert.orgId}`,
+    ...(deployRepo === undefined ? [] : [`deploy_repo: ${deployRepo}`]),
     "",
     "Do not assume anything about this alert from its identifiers. Start by",
     "fetching the rule and its current state through the Grafana MCP, then follow",
     "the runbook skill that matches the failure signature you find.",
+    ...(deployRepo === undefined
+      ? []
+      : [
+          "",
+          "This platform is deployed by ArgoCD from `deploy_repo` above, so a bad",
+          "release is a commit and the fix is a pull request against it. Do not",
+          "change the cluster directly to undo a release: open the revert PR and",
+          "post it for review.",
+        ]),
   ].join("\n");
 }
 

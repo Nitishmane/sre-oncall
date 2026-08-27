@@ -112,8 +112,23 @@ export const mcpServers: McpDefinition[] = [
     attachment: {
       name: "github",
       enableTools: ["@all"],
-      // Opening a PR is fine unattended; merging one is not.
-      requireApprovalForTools: ["@write", "@destructive"],
+      // Opening a PR is the *proposal*, and it changes nothing that is running:
+      // the pull request is what a human reviews, so producing one must not
+      // itself need approval. `@write` covered branch/file/PR creation and so
+      // stopped the agent before it could put anything in front of anyone.
+      // Merging is the act that reaches production, and a human does that in
+      // GitHub — the review is the gate.
+      requireApprovalForTools: ["merge_pull_request", "@destructive"],
+      // The revert PR is where every incident ends up, so pay the tool-schema
+      // cost once up front rather than mid-incident. Names verified against a
+      // live `tools/list`; one the server does not expose is silently dropped.
+      preloadTools: [
+        "list_commits",
+        "get_file_contents",
+        "create_branch",
+        "create_or_update_file",
+        "create_pull_request",
+      ],
     },
     requiresEnv: ["GITHUB_TOKEN"],
   },

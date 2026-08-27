@@ -1,9 +1,11 @@
 # The demo service as an ArgoCD Application.
 #
-# This is what makes "what changed?" answerable: a fault injection is a commit
-# plus a sync, so the agent can find it in ArgoCD's deploy history and correlate
-# it with the alert's start time — and roll it back through the ArgoCD MCP,
-# behind an approval gate.
+# This is what makes "what changed?" answerable: a bad release is a commit that
+# ArgoCD syncs, so the agent can find it in the deploy history and correlate it
+# with the alert's start time — then propose the revert as a pull request.
+#
+# The fix travels through git, not through an out-of-band ArgoCD call: the pull
+# request is what a human reviews, and merging it is what reaches production.
 #
 # `repoURL` is filled in by scripts/wire-argocd.sh from the repository's own
 # git remote, so this file carries no account-specific value.
@@ -24,8 +26,20 @@ spec:
     server: https://kubernetes.default.svc
     namespace: demo
   syncPolicy:
-    # Deliberately NOT automated: the demo needs a human (or the agent, behind a
-    # gate) to trigger syncs, and auto-sync would silently revert a rollback.
+    # Automated, because the merge IS the approval. A human reviewing and
+    # merging the agent's revert PR is the gate; making them then go and press
+    # Sync would be a second gate for the same decision.
+    #
+    # This was previously manual to stop auto-sync reverting a rollback applied
+    # through the ArgoCD MCP. That no longer applies: remediation is a commit on
+    # `main`, so syncing towards git is what *carries out* the fix rather than
+    # undoing it.
+    automated:
+      # Remove resources deleted from git, so a revert is a true revert.
+      prune: true
+      # NOT selfHeal: drift injected directly with kubectl (the non-release
+      # fault modes) must stay put long enough for the agent to diagnose it.
+      selfHeal: false
     syncOptions:
       - CreateNamespace=true
     retry:
