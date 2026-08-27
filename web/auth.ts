@@ -14,6 +14,13 @@ import { isAllowed, parseAllowlist } from "./lib/allowlist.ts";
  */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [GitHub],
+  // Auth.js infers this on Vercel and refuses to guess anywhere else, which
+  // makes every request fail with UntrustedHost when the console runs locally
+  // or behind the ngrok tunnel. Trusting the Host header is safe here because
+  // it is not what bounds the OAuth flow: GitHub only ever redirects to the
+  // callback URL registered on the OAuth app, and the allowlist in `signIn`
+  // decides admission regardless of which host served the page.
+  trustHost: true,
   pages: { signIn: "/signin", error: "/signin" },
   callbacks: {
     signIn({ profile }) {

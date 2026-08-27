@@ -173,19 +173,19 @@ npx @truefoundry/trueforge
 Qodo is an AI-powered code review and governance platform. For this hackathon, the Q Branch track requires Qodo to be installed from day one with visible pull-request review history. It is effectively a mandatory vendor if you want the Mac Mini prize and is explicitly named as a judging criterion for "Best Code Quality."
 
 **Core products relevant to hackathon:**
-1. **Qodo PR Review (Git Plugin):** Automatic AI review on every pull request. Install the GitHub/GitLab app, and every PR you open gets reviewed by specialized agents that analyze the full codebase context (not just the diff). Free for open-source projects.
+1. **Qodo PR Review (Git Plugin):** Automatic AI review on every pull request. Install the GitHub/GitLab app, and every PR you open gets reviewed by specialized agents that analyze the full codebase context (not just the diff). An application-based open-source programme exists; otherwise it is a 14-day trial then paid.
 2. **Qodo Command CLI:** `npm install -g @qodo/command` — runs agents from the terminal or as webhooks. Agents are defined in `.toml` files with trigger/input/action/result sections. Can run in CI mode (machine-readable output) or MCP mode (acts as callable services for orchestrators).
 3. **Qodo Agent Skills (`qodo-pr-resolver`):** An Agent Skills-compatible skill that plugs into Claude Code, Cursor, Windsurf, etc. It pulls all flagged PR issues from Qodo's platform, prioritizes by severity, and can auto-fix them. Install: `npx skills add qodo-ai/qodo-skills`.
 
 **Setup for open-source hackathon project:**
 1. Create a public GitHub/GitLab repo.
-2. Install Qodo app on the repo (free for open source): https://docs.qodo.ai/code-review
+2. Install Qodo app on the repo (14-day trial, no credit card): https://docs.qodo.ai/code-review
 3. Every PR you open will be auto-reviewed. This creates the review history judges need to see.
 4. Optionally install Qodo Command CLI for additional agent workflows.
 
 **Auth:** OAuth via GitHub/GitLab. For CLI, a Qodo account + API key.
 
-**Free tier:** Free for individual developers and open-source projects (30 PRs/month on free tier). No credit card required for a 14-day unlimited trial.
+**Free tier:** *Corrected 2026-08-26 against qodo.ai/pricing — the claim below this line was wrong when first written.* There is **no permanent free tier**. Qodo offers a **14-day trial with no credit card** (enough for the whole hackathon window); after that, Pro Team is **$30/user/month**. The open-source programme exists but is **application-based**, not self-serve. Qodo works on private repos as well as public ones.
 
 **MCP/webhook support:** Qodo Command CLI has a "webhook mode" where agents function as HTTP endpoints triggered by external systems via POST requests. It also has "MCP mode" where agents act as callable MCP services. This means you could wire Qodo quality checks into your TrueForge agent's workflow.
 
@@ -361,7 +361,7 @@ TrueForge is model-agnostic, but Anthropic's Claude is one of the four native mo
 ## (e) Open Questions / Unverified Items
 
 1. **TrueForge cookbook examples:** resources page references 9+ example agents; verify at github.com/truefoundry/trueforge which MCP servers each uses.
-2. **Qodo free tier PR limits:** 30 PRs/month for individuals confirmed; double-check whether open-source repos bypass the cap.
+2. ~~**Qodo free tier PR limits**~~ **Resolved 2026-08-26:** no permanent free tier and no PR cap to work around — a 14-day no-card trial covers Aug 24-30. See PLAN.md §9.
 3. **TrueForge ngrok requirement for webhooks:** local TrueForge needs ngrok for inbound webhooks; a free-tier cloud VM avoids this. No cloud hosting requirement in rules.
 4. **PagerDuty free tier limits:** 14-day trial covers the window; check for hackathon credits at developer.pagerduty.com.
 5. **Daytona account requirement:** unclear if TrueForge bundles a default sandbox or needs a Daytona API key — check trueforge.dev/sandbox.

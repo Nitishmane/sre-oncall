@@ -193,7 +193,7 @@ TRUEFORGE_BRIDGE_TOKEN=       # must match the orchestrator's value
 ## 9. Open Questions (resolve Day 1)
 
 1. TrueForge cookbook examples — check github.com/truefoundry/trueforge for the closest template (Bring-Your-Own-MCP).
-2. Qodo open-source tier — confirm whether the 30 PR/month cap applies to OSS repos.
+2. ~~Qodo open-source tier — confirm whether the 30 PR/month cap applies to OSS repos.~~ **Resolved 2026-08-26** (qodo.ai/pricing): there is no permanent free tier. What exists is a **14-day trial, no credit card**, which covers the whole hackathon window; paid Pro Team is $30/user/mo; the open-source programme requires an **application**, not a self-serve signup. Qodo runs fine on a **private** repo — but the rules demand *visible* PR review history and publicly readable code, so a private repo fails on **visibility, not capability**. Plan: build private, install Qodo at repo creation so review history accumulates from the first PR, flip public before submission.
 3. Daytona sandbox — bundled with TrueForge local mode or separate account/key? (trueforge.dev/sandbox)
 4. Qodo Command MCP mode — can a local Qodo agent register as an MCP server inside TrueForge? (If yes: agent reviews its own patches — great demo beat.)
 5. Which Slack workspace to use for the demo (personal/new workspace recommended).

@@ -44,3 +44,6 @@ n8n-data/
 # ── OS / editor ─────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# TypeScript incremental build state — machine-local, never useful in review.
+*.tsbuildinfo
