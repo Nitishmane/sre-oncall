@@ -99,6 +99,19 @@ Each workflow's MCP Server Trigger node needs the bearer token for authenticatio
 5. Click **Save**
 6. Repeat for the other two workflows
 
+## If you already have a `.env`
+
+`MCP_N8N_BUILDER_URL` shipped pointing at port **3000**, which is Grafana's.
+Fixing the fallback in `agent/agent.ts` is not enough — the environment wins
+over the fallback, so an existing `.env` keeps registering the wrong port and
+`npm run provision` cheerfully reports success while pointing the agent at a
+Grafana that will never speak MCP to it. Check the value, then re-provision:
+
+```bash
+grep MCP_N8N_BUILDER_URL .env     # must be http://127.0.0.1:8105/mcp
+npm run provision
+```
+
 ## Verifying the n8n-mcp Builder
 
 Ask the server what it has, rather than trusting this file:
