@@ -30,7 +30,7 @@ spec:
                 name: demo-service-faults
           env:
             - name: APP_VERSION
-              value: "0.1.0"
+              value: "0.2.0"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -49,6 +49,6 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet: { path: /healthz, port: http }
+            httpGet: { path: /health, port: http }
             initialDelaySeconds: 10
             periodSeconds: 10
