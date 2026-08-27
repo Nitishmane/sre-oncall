@@ -76,11 +76,11 @@ All requests must include attribution headers per the [usage tracking guidelines
 ## Example (curl)
 
 ```bash
-# Build body — include scopes only when SCOPE is set
+# Build body with proper JSON serialization — include scopes only when SCOPE is set
 if [ -n "${SCOPE:-}" ]; then
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20, \"scopes\": [\"${SCOPE}\"]}"
+  BODY=$(python3 -c "import json,sys; print(json.dumps({'query': '''${SEARCH_QUERY}''', 'top_k': 20, 'scopes': ['''${SCOPE}''']}))")
 else
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20}"
+  BODY=$(python3 -c "import json,sys; print(json.dumps({'query': '''${SEARCH_QUERY}''', 'top_k': 20}))")
 fi
 
 curl -s -X POST \
@@ -99,10 +99,11 @@ if [ -n "${TRACE_ID:-}" ]; then
   TRACE_HEADER="-H trace_id:${TRACE_ID}"
 fi
 
+# Build body with proper JSON serialization
 if [ -n "${SCOPE:-}" ]; then
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20, \"scopes\": [\"${SCOPE}\"]}"
+  BODY=$(python3 -c "import json,sys; print(json.dumps({'query': '''${SEARCH_QUERY}''', 'top_k': 20, 'scopes': ['''${SCOPE}''']}))")
 else
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20}"
+  BODY=$(python3 -c "import json,sys; print(json.dumps({'query': '''${SEARCH_QUERY}''', 'top_k': 20}))")
 fi
 
 curl -s -X POST \

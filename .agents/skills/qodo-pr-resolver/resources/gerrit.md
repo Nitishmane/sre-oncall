@@ -294,8 +294,19 @@ If `Change-Id` grep returns empty:
 
 If separate commits were accidentally created (one per fix), squash them before pushing:
 ```bash
-# Find the original change commit (the one with the Change-Id)
-ORIGINAL=$(git log --format=%H --grep="Change-Id:" | head -1)
+# Extract the specific Change-Id from the current HEAD
+CHANGE_ID=$(git log -1 --format=%b | grep 'Change-Id:' | sed 's/.*Change-Id: //')
+
+# Find the commit with that specific Change-Id (typically the second-newest, since HEAD will have it from the hook)
+# Search backward and take the LAST (oldest) match of this specific Change-Id
+ORIGINAL=$(git log --format=%H --format=%B | grep -B 1 "Change-Id: $CHANGE_ID" | grep -E '^[0-9a-f]{40}$' | tail -1)
+
+# Verify we found a different commit (not HEAD)
+if [ "$ORIGINAL" == "$(git rev-parse HEAD)" ]; then
+  # If HEAD is the original, find the parent instead
+  ORIGINAL=$(git rev-parse HEAD~1)
+fi
+
 git reset --soft $ORIGINAL
 git commit --amend --no-edit
 git push origin HEAD:refs/for/$TARGET_BRANCH
