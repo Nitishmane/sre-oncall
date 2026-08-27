@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: demo-service
   namespace: demo
+  labels:
+    app: demo-service
 spec:
   replicas: 3
   selector:
@@ -12,6 +14,9 @@ spec:
     metadata:
       labels:
         app: demo-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
     spec:
       containers:
         - name: demo-service
@@ -20,9 +25,6 @@ spec:
           ports:
             - name: http
               containerPort: 8000
-          envFrom:
-            - configMapRef:
-                name: demo-service-faults
           env:
             - name: APP_VERSION
               value: "0.1.0"
@@ -30,6 +32,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: demo-service-faults
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             initialDelaySeconds: 2
@@ -38,3 +43,10 @@ spec:
             httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 10
             periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
