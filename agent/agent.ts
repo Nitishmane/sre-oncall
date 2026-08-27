@@ -191,11 +191,12 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  *
  *   SRE_ONCALL_MODEL=openai/gpt-5-6-sol      OPENAI_API_KEY=...
  *   SRE_ONCALL_MODEL=anthropic/claude-opus-5 ANTHROPIC_API_KEY=...
+ *   SRE_ONCALL_MODEL=google-gemini/gemini-3-6-flash GOOGLE_GEMINI_API_KEY=...
  *
  * Run `npm run provision -- --list-models` to see what this harness offers.
  */
 export function primaryModel(): string {
-  return env("SRE_ONCALL_MODEL") || "anthropic/claude-opus-5";
+  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-sol";
 }
 
 /**

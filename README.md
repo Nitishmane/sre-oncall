@@ -103,8 +103,8 @@ provider half decides which provider gets registered on the harness and which
 API key is read:
 
 ```bash
+SRE_ONCALL_MODEL=openai/gpt-5-6-sol        # + OPENAI_API_KEY  (the default)
 SRE_ONCALL_MODEL=anthropic/claude-opus-5   # + ANTHROPIC_API_KEY
-SRE_ONCALL_MODEL=openai/gpt-5-6-sol        # + OPENAI_API_KEY
 npm run provision                          # re-run after changing it
 npm run provision -- --list-models         # what this harness offers
 ```

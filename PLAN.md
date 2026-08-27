@@ -33,7 +33,7 @@ Modeled on a production internal Slack SRE agent (anonymized — see `research/r
 | Decision | Choice | Why |
 |---|---|---|
 | Agent runtime | **TrueForge** (`npx @truefoundry/trueforge`, local mode, SQLite) | Mandated by rules. Provides sessions, MCP, skills, approval gates, subagents, SDK+SSE out of the box. |
-| Model provider | **Anthropic Claude** (Opus for investigation, Sonnet for summaries) via TrueForge model config | Strongest multi-step tool use; Anthropic SRE cookbook maps 1:1 to our flow. (The architecture report recommended Claude Managed Agents SDK — overridden by the TrueForge mandate; its patterns still apply.) |
+| Model provider | **OpenAI** (`openai/gpt-5-6-sol`) via TrueForge model config, since 2026-08-26 | Switched from Anthropic Claude: the Anthropic account backing this project has no credit, and every call returns 400 *"credit balance is too low"* — the single blocker on ever completing a healing session. The provider is configuration, not code (`SRE_ONCALL_MODEL`'s provider half picks both the registered provider and the API-key env var), so the swap costs one env line. Anthropic and google-gemini remain drop-in alternatives. |
 | Alert ingress & healing trigger | **Grafana Alerting** (kube-prometheus-stack in the kind cluster: Prometheus + Grafana + Alertmanager) → **webhook contact point** with bearer-token auth → local orchestrator `POST /webhook/grafana` → TrueForge healing session. *(Decision 2026-08-25: replaces PagerDuty entirely — no PD account, no PD MCP.)* | Alert → healing is one hop, fully local (Grafana pod → host orchestrator, no tunnel), zero SaaS trial expiry risk, and the same Grafana is already our metrics/logs MCP source. `firing` → healing session; `resolved` → postmortem session. |
 | Chat surfaces | **Authenticated Next.js chatbox on Vercel** (wraps `@truefoundry/trueforge-ui`; Auth.js GitHub-OAuth with a hardcoded allowlist; all harness calls proxied server-side) + Slack bot (Bolt, Socket Mode) for triage output & approval buttons | The chat can start harness sessions, so it must not be public. Slack is the authentic SRE surface; the Next.js wrapper is required anyway once auth enters the picture (Best UI track). |
 | Chatbox auth | **Auth.js (NextAuth v5) GitHub provider + username allowlist**; browser never sees the harness URL/token — Next.js route handlers check the session, then forward to `TRUEFORGE_API_URL` (ngrok) with a server-side bearer. The tunnel terminates at the **orchestrator's authenticated proxy**, never at raw TrueForge (local mode has no login). Fallback: host the chatbox as a separate Vercel project with Vercel Deployment Protection. | Two auth layers: OAuth at the page, bearer at the tunnel. TrueForge local mode exposed unauthenticated to the internet is the #1 foot-gun the TrueForge docs warn about. |
@@ -127,7 +127,7 @@ Alert ingress needs NO tunnel — Grafana runs in the kind cluster and posts its
 
 | Day | Goal |
 |---|---|
-| **Mon 24** | Register team. Create public GitHub repo + **install Qodo app immediately**. `npx @truefoundry/trueforge` running; Anthropic key configured; kind cluster up; agent answers a basic query via the Kubernetes MCP. First PRs (everything via PR from day one → Qodo history). |
+| **Mon 24** | Register team. Create public GitHub repo + **install Qodo app immediately**. `npx @truefoundry/trueforge` running; model-provider key configured; kind cluster up; agent answers a basic query via the Kubernetes MCP. First PRs (everything via PR from day one → Qodo history). |
 | **Tue 25** | Alert → healing pipeline: kube-prometheus-stack helm install in kind; Grafana alert rule on demo-service (error rate / OOM); **webhook contact point (bearer) → orchestrator** (verify cluster→host routing, e.g. `host.docker.internal`); dedup/flap-delay; healing-session creation via TrueForge SDK. End-to-end: inject fault → Grafana alert fires → agent session starts. No tunnel involved. |
 | **Wed 26** | Demo env + investigation depth: **ArgoCD install** + demo service as ArgoCD app; **Loki + Alloy (`loki.source.kubernetes_events`) so k8s events land in Grafana + event-based alert rules (§12)**; custom demo-service dashboard; Grafana MCP (local instance, service-account token) + ArgoCD MCP + Terraform MCP wired into the agent; skills repo with 3–4 runbooks; agent produces a real healing report (metrics + logs + pod events + last deploy). |
 | **Thu 27** | Slack bot (triage threads, status updates) + approval gates (Block Kit Approve/Reject → resume session); remediation flow: agent opens fix PR → Qodo reviews → human approves → merge → metric recovers → alert auto-resolves. |
@@ -139,7 +139,7 @@ Alert ingress needs NO tunnel — Grafana runs in the kind cluster and posts its
 
 - [ ] Hackathon registration (form above) + join Discord
 - [ ] Public GitHub repo created; **Qodo GitHub app installed** (free for open source): https://docs.qodo.ai/code-review
-- [ ] Anthropic API key (console.anthropic.com) — verify which account, since the project moves machines
+- [ ] OpenAI API key (platform.openai.com) — the configured provider; verify the account has credit, since the project moves machines
 - [ ] ngrok account + authtoken + **claim free static domain** (dashboard) — used ONLY for the chatbox→orchestrator bridge; backup: `cloudflared`
 - [ ] kube-prometheus-stack (helm) in kind → local Grafana; create Grafana **service-account token** (for the Grafana MCP) and a **webhook contact point** → `http://host.docker.internal:8080/webhook/grafana` with bearer-token auth; alert rule on the demo service
 - [ ] GitHub OAuth App for the chatbox (callback: the Vercel URL); Auth.js `AUTH_SECRET`; decide the username allowlist
@@ -153,7 +153,7 @@ Alert ingress needs NO tunnel — Grafana runs in the kind cluster and posts its
 ### Env vars the project will need
 **`.env.example` (committable template) and `.gitignore` exist in this directory** — copy `.env.example` → `.env` and fill in; `.env` is gitignored (verified). The `.gitignore` also blocks other secret-prone paths: `*.tfvars`, `*.tfstate`, `kubeconfig*`, `*.pem`/`*.key`, n8n data, SQLite files. Vercel chatbox vars are set in the Vercel dashboard only.
 ```bash
-ANTHROPIC_API_KEY=            # model provider for TrueForge
+OPENAI_API_KEY=               # model provider for TrueForge (SRE_ONCALL_MODEL's provider half picks the var)
 GRAFANA_WEBHOOK_BEARER=       # bearer the orchestrator requires on POST /webhook/grafana
 NGROK_AUTHTOKEN=              # tunnel (chatbox bridge only)
 NGROK_DOMAIN=                 # claimed static domain
@@ -224,7 +224,7 @@ Full 10-step, ~8-minute script in `research/architecture-research.md §g` — **
 1. `npm i -g vercel && vercel login` (use the hackathon GitHub account).
 2. Preferred: connect the public hackathon repo in the Vercel dashboard → auto-deploy on push, **and every PR gets a preview URL** — pairs nicely with the Qodo review on each PR (judges see review + preview per change).
 3. Or one-off: `vercel --prod` from the repo root — `index.html` is served as a static site with zero config.
-4. Env vars: none for the static page. The chatbox project needs server-side (never `NEXT_PUBLIC_`) vars: `AUTH_SECRET`, `AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET`, `CHAT_ALLOWLIST`, `TRUEFORGE_API_URL`, `TRUEFORGE_BRIDGE_TOKEN`. **Vercel holds only the auth/bridge secrets — no vendor credentials** (Grafana, GitHub-MCP, Slack, Anthropic, n8n tokens all stay on the local host).
+4. Env vars: none for the static page. The chatbox project needs server-side (never `NEXT_PUBLIC_`) vars: `AUTH_SECRET`, `AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET`, `CHAT_ALLOWLIST`, `TRUEFORGE_API_URL`, `TRUEFORGE_BRIDGE_TOKEN`. **Vercel holds only the auth/bridge secrets — no vendor credentials** (Grafana, GitHub-MCP, Slack, OpenAI, n8n tokens all stay on the local host).
 
 ### Chatbox authentication (mandatory — the chat can invoke the harness)
 - **Layer 1 — page/API auth on Vercel:** Auth.js (NextAuth v5) with the GitHub provider; `signIn` callback rejects any GitHub username not in `CHAT_ALLOWLIST`. Next.js middleware protects every route (`/`, `/api/chat/*`); unauthenticated users get only the sign-in page.

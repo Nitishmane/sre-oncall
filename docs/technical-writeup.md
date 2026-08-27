@@ -300,7 +300,7 @@ an alert is even allowed onto the queue in the first place.
 ## Model provider as configuration
 
 `agent/agent.ts` treats the model as a `provider/model` FQN
-(`SRE_ONCALL_MODEL`, e.g. `anthropic/claude-opus-5`). The provider half
+(`SRE_ONCALL_MODEL`, e.g. `openai/gpt-5-6-sol`). The provider half
 decides both which provider gets registered on the harness and which API-key
 env var is read (`apiKeyEnvFor`: `openai` → `OPENAI_API_KEY`, `google-gemini`
 → `GOOGLE_GEMINI_API_KEY`, by the harness's own naming convention). Model

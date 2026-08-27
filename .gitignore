@@ -47,3 +47,7 @@ Thumbs.db
 
 # TypeScript incremental build state — machine-local, never useful in review.
 *.tsbuildinfo
+
+# skills.sh — generated agent symlinks; the skills themselves live in .agents/
+.claude/skills/
+skills/qodo-*
