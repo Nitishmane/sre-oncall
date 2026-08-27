@@ -80,6 +80,9 @@ export const mcpServers: McpDefinition[] = [
       enableTools: ["@all"],
       // A rollback is a production change: always gated.
       requireApprovalForTools: ["@write", "@destructive"],
+      // Verified against the running server's tools/list — a name that does not
+      // exist is silently dropped, so a typo here degrades the agent in silence.
+      preloadTools: ["list_applications", "get_application", "get_application_events"],
     },
     requiresEnv: ["ARGOCD_API_TOKEN"],
   },
@@ -126,6 +129,9 @@ export const mcpServers: McpDefinition[] = [
       name: "notion",
       enableTools: ["@all"],
       requireApprovalForTools: ["@destructive"],
+      // Same caveat as ArgoCD: these are the names the server actually reports.
+      // The `API-` prefix is Notion's own, not a convention of ours.
+      preloadTools: ["API-post-search", "API-post-page", "API-patch-page"],
     },
     requiresEnv: ["NOTION_TOKEN"],
   },
