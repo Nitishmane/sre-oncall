@@ -5,9 +5,9 @@
 # - n8n: the editor and workflow execution engine (port 5678)
 # - n8n-mcp: the czlonkowski builder (MCP over HTTP, port 8105)
 #
-# Everything binds to 127.0.0.1 only. These containers talk to external SaaS
-# APIs (Slack, Twilio, PagerDuty) but do not expose their MCP endpoints to the LAN.
-# Only the orchestrator's authenticated chat proxy goes through ngrok.
+# Everything binds to 127.0.0.1 only. These containers reach out to external
+# SaaS APIs, but nothing on the LAN can reach in. Only the orchestrator's
+# authenticated chat proxy is exposed through ngrok.
 
 name: sre-oncall-n8n
 
@@ -20,8 +20,9 @@ services:
       # Only localhost. Webhooks and MCP Server Trigger run on this port.
       - "127.0.0.1:5678:5678"
     environment:
-      # n8n listens on all interfaces by default. Bind to localhost only
-      # to avoid LAN exposure of the editor and API.
+      # The hostname n8n advertises in the URLs it generates — not a bind
+      # address. What actually keeps the editor and API off the LAN is the
+      # 127.0.0.1 prefix on the port mapping above.
       N8N_HOST: 127.0.0.1
       # Webhooks: n8n generates URLs relative to this. For local dev, we
       # call n8n on localhost; if a remote SaaS needs to call back, this
@@ -38,9 +39,13 @@ services:
 
   # czlonkowski/n8n-mcp builder: exposes n8n as an MCP server,
   # letting the SRE agent create and activate workflows from natural language.
-  # Using wangtengzhou/n8n-mcp fork (sync from czlonkowski/n8n-mcp).
+  #
+  # Upstream publishes to GHCR, not Docker Hub — checking only Docker Hub makes
+  # it look unpublished and tempts you toward somebody's personal fork. Don't:
+  # this container holds the n8n API key and is a write-capable tool server the
+  # agent can reach, so it is squarely in the blast radius.
   n8n-mcp:
-    image: wangtengzhou/n8n-mcp:latest
+    image: ghcr.io/czlonkowski/n8n-mcp:latest
     ports:
       # Port 8105: next free slot in the MCP range (8100-8104 are taken).
       # Bind to localhost only; the MCP auth bearer is the only gate.
@@ -49,7 +54,14 @@ services:
       # n8n-mcp expects these two to reach the n8n instance inside the network.
       # Inside the container, "host.docker.internal" is the host machine.
       N8N_API_URL: http://host.docker.internal:5678
-      N8N_API_KEY: ${N8N_API_KEY:?set N8N_API_KEY in .env}
+      # Deliberately optional. Without it the builder still serves the whole
+      # documentation half of its toolset — search_nodes, get_node,
+      # get_template, validate_workflow — which is what the agent needs to
+      # *design* a workflow. Only the `n8n_*` management tools that reach into
+      # the live instance need the key, and those are gated behind approval
+      # anyway. Requiring it here would make the container refuse to start
+      # before anyone has had a chance to mint one in the n8n UI.
+      N8N_API_KEY: ${N8N_API_KEY:-}
       # MCP auth: the client (TrueForge harness) sends this as Authorization: Bearer.
       # Must be at least 32 characters (generated: openssl rand -hex 32).
       MCP_AUTH_TOKEN: ${N8N_MCP_AUTH_TOKEN:?set N8N_MCP_AUTH_TOKEN in .env}

@@ -101,39 +101,42 @@ Each workflow's MCP Server Trigger node needs the bearer token for authenticatio
 
 ## Verifying the n8n-mcp Builder
 
-The builder exposes 23+ MCP tools for creating and managing workflows.
-
-### Check the Builder's Tool List
+Ask the server what it has, rather than trusting this file:
 
 ```bash
-# Using the probe script (if available):
-bash /path/to/probe-mcp.sh 8105
+set -a && . ./.env && set +a
+mcp/probe-tools.sh 8105 "$N8N_MCP_AUTH_TOKEN"
 ```
 
-You should see a list of tools like:
-- `search_nodes` — Search 2,500+ n8n nodes
-- `search_templates` — Search 2,352 workflow templates
-- `get_template` — Fetch a template by ID
-- `validate_workflow` — Validate before activating
-- `create_workflow` — POST /api/v1/workflows
-- `activate_workflow` — Activate by ID
-- `get_workflow` — Fetch workflow details
-- And others for execution, credentials, versioning
+That matters more than it sounds. The harness **silently ignores** a
+`preloadTools` entry in `agent/agent.ts` that does not match a real tool — no
+warning, no error, just an agent that quietly cannot do the thing you thought
+you gave it. Never copy a tool name out of documentation; read it off the
+server.
 
-If the probe script is not available, try manually:
+### What the builder exposes
 
-```bash
-curl -s -H "Authorization: Bearer ${N8N_MCP_AUTH_TOKEN}" \
-  http://127.0.0.1:8105/mcp/tools/list | jq '.tools[].name'
+The toolset splits in two, and which half you get depends on `N8N_API_KEY`.
+
+**Without an API key — 7 documentation tools** (verified 2026-08-27 against
+`ghcr.io/czlonkowski/n8n-mcp:latest`):
+
+```
+get_node  get_template  search_nodes  search_templates
+tools_documentation  validate_node  validate_workflow
 ```
 
-### Common Builder Tool Names (Exact)
+This is enough for the agent to *design* a workflow: find the right nodes, pull
+a template, and validate the result before anyone commits to it.
 
-The agent configuration expects these exact names. If they differ, update `agent/agent.ts`:
-- (Documentation tools do not require n8n API key)
-- (Management tools do require n8n API key)
+**With an API key — 18 more `n8n_*` management tools** that reach into the
+running instance, among them `n8n_create_workflow`, `n8n_update_partial_workflow`,
+`n8n_delete_workflow`, `n8n_list_workflows` and `n8n_health_check`.
 
-Copy the actual names from the probe output above and verify them against the agent config.
+Note the `n8n_` prefix on every one of them. There is no bare `create_workflow`
+or `activate_workflow`; activation happens through a workflow update. The
+compose file leaves `N8N_API_KEY` optional precisely so the documentation half
+works before anyone has minted a key.
 
 ## Verifying the MCP Server Trigger Tools
 
@@ -147,17 +150,26 @@ Authentication: `Authorization: Bearer ${N8N_TOOLS_BEARER}`
 
 ### Test the Tool List
 
+Same handshake as the builder, so the same script works — the trigger just
+lives on n8n's own port under a path rather than on a bridge port:
+
 ```bash
-curl -s -H "Authorization: Bearer ${N8N_TOOLS_BEARER}" \
-  http://127.0.0.1:5678/mcp/sre-oncall/tools/list | jq '.tools[].name'
+set -a && . ./.env && set +a
+mcp/probe-tools.sh 5678 "$N8N_TOOLS_BEARER"   # see caveat below
 ```
 
-Expected tool names (exact):
-- `notify-oncall`
-- `create-incident-ticket`
-- `escalate-incident`
+The script targets `/mcp` on the port you give it, so for the trigger's
+`/mcp/sre-oncall` path you currently need the handshake by hand. The important
+part is that it is a **JSON-RPC POST handshake, not a REST GET** — there is no
+`/tools/list` URL to curl on any MCP server.
 
-**Note:** If a workflow is not activated, its tool will not appear in this list.
+Expected tool names once the three workflows are imported *and activated*:
+`notify-oncall`, `create-incident-ticket`, `escalate-incident`.
+
+**Until then this endpoint returns 404** — `"The requested webhook POST
+sre-oncall is not registered"`. That is the expected state of a fresh instance,
+not a misconfiguration: n8n only registers the path when a workflow carrying
+that trigger is switched on.
 
 ## Stopping the Containers
 

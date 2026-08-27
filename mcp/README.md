@@ -95,5 +95,17 @@ and in the runbooks were taken from live servers, not from documentation:
 |---|---|
 | grafana | `alerting_manage_rules`, `query_prometheus`, `query_prometheus_histogram`, `query_loki_logs`, `get_panel_image` |
 | kubernetes | `pods_list_in_namespace`, `pods_get`, `pods_log` (takes `previous`), `events_list`, `resources_create_or_update`, `resources_scale` |
+| argocd | `list_applications`, `get_application`, `get_application_events`, `sync_application` |
+| notion | `API-post-search`, `API-post-page`, `API-patch-page` — the `API-` prefix is Notion's own |
+| n8n-builder | `search_nodes`, `get_template`, `validate_workflow`; the write half is prefixed `n8n_` |
 
-Re-check them with the loop above after upgrading a server image.
+`probe-tools.sh` asks a server directly, so use it rather than this table when
+it matters:
+
+```bash
+set -a && . ../.env && set +a
+mcp/probe-tools.sh 8102                          # no auth
+mcp/probe-tools.sh 8105 "$N8N_MCP_AUTH_TOKEN"    # bearer-protected
+```
+
+Re-check after upgrading any server image.
