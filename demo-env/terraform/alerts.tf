@@ -19,7 +19,7 @@ locals {
     latency    = 0.5  # 500ms at p99
     oom        = 0    # any OOMKill at all
     restarts   = 3    # restarts in 10 minutes
-    replicas   = 0    # any missing ready replica
+    replicas   = 0.5  # sustained: averaged over 5m, so a rolling update's blip does not trip it
     } : name => jsonencode({
       refId      = "threshold"
       type       = "threshold"
@@ -200,7 +200,7 @@ resource "grafana_rule_group" "demo_service" {
     # Left at the default (NoData) each of these fires DatasourceNoData forever.
     no_data_state  = "OK"
     exec_err_state = "Error"
-    for       = "2m"
+    for       = "1m"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
       summary = "demo-service has fewer ready replicas than desired"
@@ -217,9 +217,20 @@ resource "grafana_rule_group" "demo_service" {
       model = jsonencode({
         refId   = "query"
         instant = true
+        # Averaged over a window, not sampled instantaneously. A container
+        # killed by a failing liveness probe restarts, passes readiness, and is
+        # Ready again for a few seconds before the next kill — so the raw
+        # expression oscillates 3 -> 0 -> 3 and resets the `for` timer forever.
+        # Measured during a real crashloop it read `0 0 0 3 3 3 0 0 3 3 3`,
+        # which never sustains long enough to fire: the deployment was entirely
+        # down and this alert sat in Pending indefinitely.
         expr    = <<-PROMQL
-          kube_deployment_spec_replicas{namespace="${var.demo_namespace}", deployment="demo-service"}
-            - kube_deployment_status_replicas_ready{namespace="${var.demo_namespace}", deployment="demo-service"}
+          avg_over_time(
+            (
+              kube_deployment_spec_replicas{namespace="${var.demo_namespace}", deployment="demo-service"}
+                - kube_deployment_status_replicas_ready{namespace="${var.demo_namespace}", deployment="demo-service"}
+            )[5m:30s]
+          )
         PROMQL
       })
     }

@@ -30,12 +30,31 @@ back.** The application syncs automatically from `main`, so anything you change
 cluster-side is undone at the next sync — and worse, it erases the symptom while
 the cause is still committed. The fix has to land in git.
 
-1. `create_branch` from the deploy branch, e.g. `revert/<short-sha>`.
-2. `create_or_update_file` to restore exactly the lines the bad commit changed,
-   taking the previous content from `get_file_contents` at the last good
-   revision. Nothing else — a revert PR carrying unrelated tidying does not get
-   merged during an incident.
-3. `create_pull_request` against the deploy branch, with a body that stands on
+1. **Read the bad commit's diff** with `get_commit` on its sha. That tells you
+   precisely which lines to put back, and it is what you check your own PR
+   against at the end.
+2. `create_branch` from the deploy branch, e.g. `revert/<short-sha>`.
+3. **Fetch the previous good content and write it back verbatim.**
+   `get_file_contents` at the last good revision returns the whole file inline,
+   as a `resource` whose `text` is the complete source. Pass that text straight
+   to `create_or_update_file`.
+
+   Two traps here, both of which have already produced a bad revert PR:
+
+   - **Do not pass a `fields` filter to `get_file_contents`.** Narrowing it to
+     `name`/`path`/`sha`/`download_url` strips the content out of the response,
+     and you are left with metadata and a URL you cannot fetch.
+   - **Never retype or reconstruct the file from memory**, and do not try to
+     `curl` the `download_url` from a sandbox. `create_or_update_file` replaces
+     the *entire* file, so anything you fail to reproduce exactly is silently
+     deleted. A revert that quietly drops a `resources:` block has removed the
+     memory limit from a production workload while claiming to be a revert.
+
+4. **Check your own diff before opening the PR.** It must be the exact inverse
+   of the bad commit's diff from step 1 — same files, same lines, nothing else.
+   If it is larger than that, you have lost content: start again from the good
+   revision rather than patching up what you produced.
+5. `create_pull_request` against the deploy branch, with a body that stands on
    its own:
    - the revision you are reverting **from** and **to**,
    - the correlation evidence and the gap in minutes,

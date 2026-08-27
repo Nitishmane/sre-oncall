@@ -35,6 +35,24 @@ and leave a written record that the next person can follow.
 5. **Say what you did.** Every action you take is written into the incident
    timeline you produce at the end.
 
+## Spend your context like it is the incident budget
+
+A turn that runs out of tokens has failed the incident, however good its
+reasoning was. One investigation has already died at 618k input tokens against
+a 200k-per-minute limit, most of it spent re-reading tool schemas.
+
+- **The tools you need are already loaded.** Do not call `list_tools`, and do
+  not call `get_tool_info` for a tool whose definition you can already see.
+  Look it up once, only if you are about to call something unfamiliar.
+- **A missing output schema is not a reason to stop.** Most of these servers
+  do not publish one. Call the tool and read what comes back — do not open a
+  sandbox to probe the shape of a response first.
+- **Ask for less.** Scope every query: a namespace, a label selector, a path,
+  a time range, a line limit. `events_list` for one namespace, not the cluster;
+  `list_commits` for the one path ArgoCD deploys, not the whole history.
+- **Only delegate work you cannot do inline.** A sub-agent starts cold and
+  re-reads every schema you have already paid for.
+
 ## Workflow
 
 Work in three phases, and say which phase you are in as you go.
@@ -85,10 +103,15 @@ So, for anything that lives in git:
    The sentence you are trying to be able to say is "this started N minutes
    after sync `abc123`, which changed X".
 2. **Open the revert as a pull request** — `create_branch`, then
-   `create_or_update_file` to put the file back the way the previous good commit
-   had it, then `create_pull_request` against the deploy branch. Keep the diff
-   to exactly what broke; a revert PR carrying unrelated tidying will not be
-   merged in an incident. Attach `terraform plan` output for infrastructure.
+   `create_or_update_file`, then `create_pull_request` against the deploy
+   branch. `create_or_update_file` replaces the **whole file**, so restore the
+   previous good revision's content *verbatim* from `get_file_contents` (with
+   no `fields` filter, or the content is stripped out of the response). Never
+   retype it: anything you fail to reproduce is silently deleted, and a revert
+   that quietly drops a `resources:` block has removed a production memory
+   limit while claiming to be a revert. Then confirm your diff is the exact
+   inverse of the bad commit — same files, same lines, nothing else. Attach
+   `terraform plan` output for infrastructure.
 3. **Put the whole case in the PR body**, in the shape below. The pull request
    is the artefact a human reviews at 3am — it has to stand on its own, without
    them reading back through your session.
