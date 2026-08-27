@@ -87,9 +87,15 @@ async function listModels(): Promise<void> {
 
 async function provisionMcpServers(): Promise<void> {
   console.log("MCP servers");
+  const disabledByEnv = new Set(
+    (process.env["MCP_DISABLED"] ?? "").split(",").map((n) => n.trim()).filter(Boolean),
+  );
   for (const server of mcpServers) {
     if (!isConfigured(server)) {
-      skip(`${server.manifest.name} (missing ${server.requiresEnv?.join(", ")})`);
+      const reason = disabledByEnv.has(server.manifest.name)
+        ? "disabled via MCP_DISABLED"
+        : `missing ${server.requiresEnv?.join(", ")}`;
+      skip(`${server.manifest.name} (${reason})`);
       continue;
     }
     await client.settings.mcpServers.createOrUpdate({ manifest: server.manifest });

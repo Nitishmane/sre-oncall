@@ -326,7 +326,30 @@ export function agentSpec(): TrueForgeApi.AgentSpec {
   };
 }
 
-/** An optional MCP server is provisioned only when its credentials are present. */
+/**
+ * Servers switched off by name, comma-separated, via `MCP_DISABLED`.
+ *
+ * Every attached server costs memory in its own container and tool-definition
+ * tokens in every single request of every turn — and this stack is
+ * oversubscribed: the containers share Docker's allocation with the kind node,
+ * and have twice starved the Kubernetes API server into `TLS handshake
+ * timeout`. Turning off what a given demo does not use is the cheapest lever
+ * on both problems.
+ */
+function disabledServers(): Set<string> {
+  return new Set(
+    (env("MCP_DISABLED") ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name !== ""),
+  );
+}
+
+/**
+ * An optional MCP server is provisioned only when its credentials are present
+ * and it has not been switched off for this run.
+ */
 export function isConfigured(server: McpDefinition): boolean {
+  if (disabledServers().has(server.manifest.name)) return false;
   return (server.requiresEnv ?? []).every((name) => (process.env[name] ?? "") !== "");
 }
