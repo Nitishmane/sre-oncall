@@ -131,37 +131,13 @@ Check that the required Qodo configuration is present. The default location is `
 - **API URL override** (optional): Read from `~/.qodo/config.json` (`QODO_API_URL` field). If present, use `{QODO_API_URL}/rules/v1` as the API base URL. If absent, the `ENVIRONMENT_NAME`-based URL is used.
 - **Request ID**: Generate a UUID (e.g. `python3 -c "import uuid; print(uuid.uuid4())"`) to use as `request-id` for all API calls in this invocation.
 
-Example config parsing (environment variables take precedence):
+Example config parsing:
 ```bash
-# Start with environment variables; fall back to config file
-API_KEY="${QODO_API_KEY:-}"
-ENV_NAME="${QODO_ENVIRONMENT_NAME:-}"
-QODO_API_URL="${QODO_API_URL:-}"
-
-# If API_KEY not set, try config file
-if [ -z "$API_KEY" ]; then
-  if [ -f ~/.qodo/config.json ]; then
-    API_KEY=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('API_KEY',''))" 2>/dev/null || echo "")
-  fi
-fi
-
-# If ENV_NAME not set, try config file
-if [ -z "$ENV_NAME" ]; then
-  if [ -f ~/.qodo/config.json ]; then
-    ENV_NAME=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('ENVIRONMENT_NAME',''))" 2>/dev/null || echo "")
-  fi
-fi
-
-# If QODO_API_URL not set, try config file
-if [ -z "$QODO_API_URL" ]; then
-  if [ -f ~/.qodo/config.json ]; then
-    QODO_API_URL=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('QODO_API_URL',''))" 2>/dev/null || echo "")
-  fi
-fi
-
+API_KEY=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c['API_KEY'])")
+ENV_NAME=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('ENVIRONMENT_NAME',''))")
+QODO_API_URL=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('QODO_API_URL',''))")
 REQUEST_ID=$(uuidgen || python3 -c "import uuid; print(uuid.uuid4())")
-
-# Determine API_URL: environment variable takes precedence, then config file override, then environment-based default
+# Determine API_URL: QODO_API_URL takes precedence over ENVIRONMENT_NAME
 if [ -n "$QODO_API_URL" ]; then
   API_URL="${QODO_API_URL}/rules/v1"
 elif [ -z "$ENV_NAME" ]; then

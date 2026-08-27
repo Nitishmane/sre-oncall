@@ -123,32 +123,16 @@ glab mr list --source-branch <branch-name>
 
 ```bash
 BRANCH=$(git branch --show-current)
-PAGE_URL="https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"
-python3 << 'EOF'
-import sys, json, urllib.request, urllib.error, os
-from base64 import b64encode
-
-username = os.environ.get('BB_USERNAME')
-password = os.environ.get('BB_APP_PASSWORD')
+curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN" \
+  | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
 branch = '$BRANCH'
-url = '$PAGE_URL'
-
-credentials = b64encode(f"{username}:{password}".encode()).decode()
-headers = {'Authorization': f'Basic {credentials}'}
-
-while url:
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read())
-            for pr in data.get('values', []):
-                if pr['source']['branch']['name'] == branch:
-                    print(json.dumps({'id': pr['id'], 'title': pr['title']}, indent=2))
-            url = data.get('pagelen') and data.get('next') or None
-    except urllib.error.HTTPError as e:
-        sys.stderr.write(f"Error: {e.code}\n")
-        break
-EOF
+for pr in data.get('values', []):
+    if pr['source']['branch']['name'] == branch:
+        print(json.dumps({'id': pr['id'], 'title': pr['title']}, indent=2))
+"
 ```
 
 ### Azure DevOps
@@ -167,8 +151,8 @@ Qodo posts both **summary comments** (PR-level) and **inline review comments** (
 # PR-level comments (includes the summary comment with all issues)
 gh pr view <pr-number> --json comments
 
-# Inline review comments (per-line comments on specific code) — paginated to fetch all pages
-gh api --paginate repos/{owner}/{repo}/pulls/<pr-number>/comments
+# Inline review comments (per-line comments on specific code)
+gh api repos/{owner}/{repo}/pulls/<pr-number>/comments
 ```
 
 ### GitLab
@@ -181,33 +165,9 @@ glab mr view <mr-iid> --comments
 ### Bitbucket
 
 ```bash
-# All PR comments including inline comments — with pagination support
-PAGE_URL="https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
-python3 << 'EOF'
-import sys, json, urllib.request, urllib.error, os
-from base64 import b64encode
-
-username = os.environ.get('BB_USERNAME')
-password = os.environ.get('BB_APP_PASSWORD')
-url = '$PAGE_URL'
-credentials = b64encode(f"{username}:{password}".encode()).decode()
-headers = {'Authorization': f'Basic {credentials}'}
-all_comments = []
-
-while url:
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read())
-            all_comments.extend(data.get('values', []))
-            url = data.get('next')
-    except urllib.error.HTTPError as e:
-        sys.stderr.write(f"Error: {e.code}\n")
-        break
-
-for comment in all_comments:
-    print(json.dumps(comment))
-EOF
+# All PR comments including inline comments
+curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
 ```
 
 ### Azure DevOps
@@ -251,26 +211,18 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/note
 ### Bitbucket
 
 ```bash
-# Properly JSON-encode the reply body
-BODY=$(python3 -c "import json,sys; print(json.dumps({'content': {'raw': '''<reply-body>'''}, 'parent': {'id': <inline-comment-id>}}))")
 curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d "${BODY}"
+  -d '{"content": {"raw": "<reply-body>"}, "parent": {"id": <inline-comment-id>}}'
 ```
 
 ### Azure DevOps
 
 ```bash
 # Add a reply comment to an existing thread (az repos pr thread does not exist)
-# Properly JSON-encode the reply body
-python3 << 'EOF' > /tmp/ado_comment.json
-import json
-content = """<reply-body>"""
-data = {"content": content, "commentType": 1}
-print(json.dumps(data))
-EOF
+echo '{"content": "<reply-body>", "commentType": 1}' > /tmp/ado_comment.json
 az devops invoke \
   --area git \
   --resource pullRequestThreadComments \
@@ -300,25 +252,19 @@ glab mr comment <mr-iid> --message '<comment-body>'
 ### Bitbucket
 
 ```bash
-# Properly JSON-encode the summary body (may contain multi-line Markdown)
-BODY=$(python3 -c "import json,sys; print(json.dumps({'content': {'raw': '''<comment-body>'''}}))")
 curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d "${BODY}"
+  -d '{"content": {"raw": "<comment-body>"}}'
 ```
 
 ### Azure DevOps
 
 ```bash
 # Create a new top-level comment thread (az repos pr thread create does not exist)
-# Properly JSON-encode the summary body (may contain multi-line Markdown)
-python3 << 'EOF' > /tmp/ado_thread.json
-import json
-content = """<comment-body>"""
-data = {"comments": [{"content": content, "commentType": 1}], "status": "active"}
-print(json.dumps(data))
+cat > /tmp/ado_thread.json << 'EOF'
+{"comments": [{"content": "<comment-body>", "commentType": 1}], "status": "active"}
 EOF
 az devops invoke \
   --area git \
