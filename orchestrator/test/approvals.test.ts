@@ -187,3 +187,74 @@ test("button payloads round-trip, and malformed ones are rejected", () => {
   assert.equal(decodeRef('{"sessionId":1,"threadId":"m","toolCallId":"c"}'), null, "types are checked");
   assert.equal(decodeRef('"a string"'), null);
 });
+
+test("a tool call the stream never delivered is fetched back, not shown as unknown", async () => {
+  // Reproduces the real failure: `subscribeToTurn` does not replay, so a
+  // follower that attaches after the model has already asked for a tool sees
+  // only the approval event. Nobody can meaningfully approve "unknown tool".
+  const store = openStore(":memory:");
+  const { surface, approvals } = recordingSurface();
+  let asked: { eventId: string; toolCallId: string } | null = null;
+
+  const follower = createFollower("sess-late", surface, {
+    log: silent,
+    store,
+    resolveToolCall: async (_session, eventId, toolCallId) => {
+      asked = { eventId, toolCallId };
+      return {
+        toolLabel: "argocd.rollback_application",
+        arguments: '{"app":"demo-service"}',
+        rationale: "Sync 47 raised 5xx to 18%; rolling back to 46.",
+      };
+    },
+  });
+
+  await follower.follow(
+    Promise.resolve(
+      streamOf({
+        type: "tool.approval_required",
+        id: "evt-2",
+        createdAt: "2026-08-25T10:00:01Z",
+        threadId: "main",
+        toolCalls: [{ id: "call-1", sourceEventId: "evt-1" }],
+      }),
+    ),
+  );
+
+  assert.deepEqual(asked, { eventId: "evt-1", toolCallId: "call-1" });
+  assert.equal(approvals[0]?.toolLabel, "argocd.rollback_application");
+  assert.match(approvals[0]?.rationale ?? "", /rolling back to 46/i);
+
+  // And the recovered detail is what lands in the audit log.
+  const row = store.approval("sess-late", "call-1");
+  assert.equal(row?.tool_label, "argocd.rollback_application");
+  assert.match(row?.rationale ?? "", /18%/);
+});
+
+test("a resolver that cannot find the call leaves the gate intact", async () => {
+  const store = openStore(":memory:");
+  const { surface, approvals } = recordingSurface();
+  const follower = createFollower("sess-miss", surface, {
+    log: silent,
+    store,
+    resolveToolCall: async () => null,
+  });
+
+  await follower.follow(
+    Promise.resolve(
+      streamOf({
+        type: "tool.approval_required",
+        id: "evt-2",
+        createdAt: "2026-08-25T10:00:01Z",
+        threadId: "main",
+        toolCalls: [{ id: "call-9", sourceEventId: "evt-1" }],
+      }),
+    ),
+  );
+
+  // Still prompted — failing to describe an action must never mean skipping
+  // the approval for it.
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0]?.toolLabel, "unknown tool");
+  assert.equal(store.approval("sess-miss", "call-9")?.decision, null);
+});

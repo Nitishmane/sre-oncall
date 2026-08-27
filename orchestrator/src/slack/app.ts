@@ -13,7 +13,7 @@ import {
   decodeRef,
   incidentBlocks,
 } from "./blocks.ts";
-import type { PendingApproval } from "./translator.ts";
+import { formatArguments, toolLabel, type PendingApproval } from "./translator.ts";
 
 const { App, LogLevel } = bolt;
 
@@ -66,7 +66,22 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     if (existing) return existing;
 
     const surface = createSlackSurface({ app, store, channel, threadTs, sessionId, restricted });
-    const follower = createFollower(sessionId, surface, { log, store });
+    const follower = createFollower(sessionId, surface, {
+      log,
+      store,
+      // The turn stream does not replay, so a follower that attached late never
+      // saw the tool call behind an approval. Fetch it back rather than ask
+      // someone to approve "unknown tool".
+      resolveToolCall: async (session, eventId, toolCallId) => {
+        const found = await harness.findToolCall(session, eventId, toolCallId);
+        if (found === null) return null;
+        return {
+          toolLabel: toolLabel(found.call),
+          arguments: formatArguments(found.call.function.arguments),
+          rationale: found.rationale,
+        };
+      },
+    });
     followers.set(sessionId, follower);
     return follower;
   }
@@ -190,7 +205,9 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
       threadId: ref.threadId,
       toolCallId: ref.toolCallId,
       toolLabel: record?.tool_label ?? "the requested tool",
-      arguments: record?.arguments ?? "(arguments unavailable)",
+      arguments: record?.arguments ?? "",
+      rationale: record?.rationale ?? "",
+      sourceEventId: null,
     };
     await app.client.chat.update({
       channel: payload.channel,

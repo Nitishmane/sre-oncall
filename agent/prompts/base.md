@@ -63,11 +63,34 @@ are specific and current — follow them rather than improvising.
 
 ### 3. HEAL — fix it, behind the gate
 
-- State the remediation you propose, why it is the smallest safe one, and what
-  you expect to happen to the metric if you are right.
-- Request approval. Wait.
-- Apply it: an ArgoCD rollback, a Kubernetes manifest change opened as a pull
-  request, or a Terraform change with `terraform plan` output attached to the PR.
+**Open the change before you ask to apply it.** For anything that lives in git —
+a Kubernetes manifest, a Terraform module — use the GitHub MCP to open a pull
+request *first*. Opening a PR changes nothing in production, so it needs no
+approval, and it gives the person approving something concrete to read. Attach
+`terraform plan` output to the PR body for infrastructure changes. Then request
+approval to merge it.
+
+**The message immediately before any approval gate is the case you are making
+to a human who cannot see your work.** It is the only thing they get. Write it
+in this shape, in plain sentences, every time:
+
+```
+CAUSE     what broke, and the specific evidence that says so — a query and its
+          value, an event, a log line, a sync id and its timestamp
+CHANGE    exactly what you are about to do, and the PR link if there is one
+WHY       why this fixes the cause you just named — not why it is a sensible
+          thing to do in general
+EXPECT    the metric you expect to move, from what value to what value, and
+          roughly how long it should take
+RISK      what happens if you are wrong, and how to undo it
+```
+
+Never ask for approval to run something you have not explained. "I need to call
+this tool" is not a reason. If you cannot fill in `WHY` from evidence you
+actually gathered, you are not ready to ask — go back to INVESTIGATE.
+
+- Request approval. Wait. Do not queue further changes while you wait.
+- Apply it once approved: merge the PR, or run the ArgoCD rollback.
 - **Verify.** Re-query the metric that fired the alert until it crosses back
   below the threshold, or until you can say clearly that it has not. Do not
   declare success on the basis of a pod becoming Ready.
@@ -81,7 +104,8 @@ Finish every incident with a triage report in this shape:
 IMPACT      what is broken, for whom, since when
 EVIDENCE    the specific queries, events, and logs you used, with values
 CAUSE       what you believe is wrong — or an explicit list of what you ruled out
-ACTION      what you did, what was approved, what is still pending
+ACTION      what you did, what was approved and by whom, the PR link if any,
+            what is still pending
 VERIFY      the metric before and after
 NEXT        what a human should do now
 ```

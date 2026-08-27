@@ -16,6 +16,20 @@ export interface PendingApproval {
   toolLabel: string;
   /** Pretty-printed arguments, truncated for a Slack message. */
   arguments: string;
+  /**
+   * The agent's own words for *this* action — what it found, what it wants to
+   * do, and why it expects that to work. Taken from the `model.message` that
+   * requested the tool call. Without it an approver is being asked to rubber
+   * stamp an opaque function call.
+   */
+  rationale: string;
+  /**
+   * Event id of the `model.message` that requested the call. The turn stream
+   * does not replay, so if the follower attached after that message it never
+   * saw the tool call; this lets it fetch the detail back rather than render
+   * "unknown tool".
+   */
+  sourceEventId: string | null;
 }
 
 export type SurfaceAction =
@@ -30,6 +44,9 @@ export type SurfaceAction =
 
 const MAX_ARGUMENT_CHARS = 600;
 
+/** Label used when the tool call was never seen; the follower tries to resolve it. */
+export const UNKNOWN_TOOL = "unknown tool";
+
 function textOf(content: TrueForgeApi.ModelMessageEventContent | null | undefined): string {
   if (content == null) return "";
   if (typeof content === "string") return content;
@@ -39,14 +56,14 @@ function textOf(content: TrueForgeApi.ModelMessageEventContent | null | undefine
     .join("");
 }
 
-function toolLabel(call: TrueForgeApi.ToolCall): string {
+export function toolLabel(call: TrueForgeApi.ToolCall): string {
   const info = call.toolInfo;
   if (info.type === "mcp") return `${info.serverName}.${info.name}`;
   return call.function.name;
 }
 
 /** Pretty-print tool arguments, which arrive as a JSON string of unknown shape. */
-function formatArguments(raw: string): string {
+export function formatArguments(raw: string): string {
   let pretty = raw;
   try {
     pretty = JSON.stringify(JSON.parse(raw), null, 2);
@@ -59,8 +76,11 @@ function formatArguments(raw: string): string {
 }
 
 export function createTranslator(sessionId: string) {
-  /** Tool calls seen so far, so an approval request can say what it is approving. */
-  const toolCalls = new Map<string, TrueForgeApi.ToolCall>();
+  /**
+   * Tool calls seen so far with the text that introduced them, so an approval
+   * request can say both what it is approving and why the agent asked.
+   */
+  const toolCalls = new Map<string, { call: TrueForgeApi.ToolCall; rationale: string }>();
   /** The last assistant text, used when a finished turn carries no output. */
   let lastText = "";
   /** Approvals already shown, so a pause is not prompted for twice. */
@@ -69,15 +89,19 @@ export function createTranslator(sessionId: string) {
   function approvalFor(ref: TrueForgeApi.ToolCallRef, threadId: string): SurfaceAction | null {
     if (prompted.has(ref.id)) return null;
     prompted.add(ref.id);
-    const call = toolCalls.get(ref.id);
+    const seen = toolCalls.get(ref.id);
     return {
       kind: "approval",
       approval: {
         sessionId,
         threadId,
         toolCallId: ref.id,
-        toolLabel: call ? toolLabel(call) : "unknown tool",
-        arguments: call ? formatArguments(call.function.arguments) : "(arguments unavailable)",
+        toolLabel: seen ? toolLabel(seen.call) : UNKNOWN_TOOL,
+        arguments: seen ? formatArguments(seen.call.function.arguments) : "",
+        // Fall back to the last thing the agent said: better a slightly stale
+        // explanation than none at all.
+        rationale: (seen?.rationale ?? "").trim() || lastText,
+        sourceEventId: ref.sourceEventId ?? null,
       },
     };
   }
@@ -90,7 +114,7 @@ export function createTranslator(sessionId: string) {
         if (text !== "") lastText = text;
 
         for (const call of event.toolCalls ?? []) {
-          toolCalls.set(call.id, call);
+          toolCalls.set(call.id, { call, rationale: text });
         }
         const [first] = event.toolCalls ?? [];
         if (first) {

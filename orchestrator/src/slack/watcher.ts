@@ -1,7 +1,7 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import type { Logger } from "../logger.ts";
 import type { Store } from "../store.ts";
-import { createTranslator } from "./translator.ts";
+import { createTranslator, UNKNOWN_TOOL, type PendingApproval } from "./translator.ts";
 import { applyAction, type Surface } from "./surface.ts";
 
 /**
@@ -19,6 +19,15 @@ export interface FollowerDeps {
   log: Logger;
   store: Store;
   now?: () => number;
+  /**
+   * Recovers a tool call the turn stream never delivered. Optional so tests and
+   * non-Slack surfaces can build a follower without a harness.
+   */
+  resolveToolCall?: (
+    sessionId: string,
+    eventId: string,
+    toolCallId: string,
+  ) => Promise<{ toolLabel: string; arguments: string; rationale: string } | null>;
 }
 
 export type TurnStream = AsyncIterable<TrueForgeApi.TurnStreamingEvent>;
@@ -41,9 +50,8 @@ export function createFollower(
     });
   };
 
-  async function recordAndShow(approval: {
-    threadId: string; toolCallId: string; toolLabel: string; arguments: string; sessionId: string;
-  }): Promise<void> {
+  async function recordAndShow(pending: PendingApproval): Promise<void> {
+    const approval = await withToolDetail(pending);
     // Written to the audit log before it is shown, so the gate is recorded even
     // if the Slack post fails.
     const base = {
@@ -52,6 +60,7 @@ export function createFollower(
       toolCallId: approval.toolCallId,
       toolLabel: approval.toolLabel,
       arguments: approval.arguments,
+      rationale: approval.rationale,
     };
     deps.store.recordApprovalRequest({ ...base, channel: null, messageTs: null }, now());
     deps.log.info("approval requested", {
@@ -72,6 +81,29 @@ export function createFollower(
     } catch (err) {
       onError(err, { kind: "approval" });
     }
+  }
+
+  /**
+   * Fills in a tool call the stream dropped. Nobody can meaningfully approve
+   * "unknown tool", so it is worth one extra request to say what is actually
+   * being asked for.
+   */
+  async function withToolDetail(approval: PendingApproval): Promise<PendingApproval> {
+    if (approval.toolLabel !== UNKNOWN_TOOL) return approval;
+    if (approval.sourceEventId === null || deps.resolveToolCall === undefined) return approval;
+
+    const found = await deps.resolveToolCall(
+      sessionId,
+      approval.sourceEventId,
+      approval.toolCallId,
+    );
+    if (found === null) return approval;
+    return {
+      ...approval,
+      toolLabel: found.toolLabel,
+      arguments: found.arguments,
+      rationale: approval.rationale.trim() || found.rationale,
+    };
   }
 
   async function pump(stream: TurnStream): Promise<void> {

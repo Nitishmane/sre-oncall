@@ -74,7 +74,10 @@ test("an approval for a tool call we never saw still renders", () => {
   assert.equal(action?.kind, "approval");
   if (action?.kind !== "approval") return;
   assert.equal(action.approval.toolLabel, "unknown tool");
-  assert.match(action.approval.arguments, /unavailable/);
+  // Arguments are left empty rather than filled with a placeholder, and the
+  // source event is carried through so the follower can fetch the real call.
+  assert.equal(action.approval.arguments, "");
+  assert.equal(action.approval.sourceEventId, "evt-1");
 });
 
 test("tool arguments are truncated rather than flooding the thread", () => {
@@ -237,4 +240,77 @@ test("chunkText hard-splits a paragraph that cannot fit", () => {
 
 test("short text is returned unchanged", () => {
   assert.deepEqual(chunkText("hello", 3000), ["hello"]);
+});
+
+test("an approval carries the agent's reasoning for that specific call", () => {
+  const t = createTranslator("sess-1");
+  t.handle({
+    type: "model.message",
+    id: "evt-1",
+    createdAt: "2026-08-25T10:00:00Z",
+    threadId: "main",
+    finishReason: "tool_calls",
+    content: "Rollout 47 raised 5xx from 0.1% to 18%. Rolling back to 46, which was healthy.",
+    toolCalls: [
+      {
+        id: "call-1",
+        type: "function",
+        function: { name: "rollback_application", arguments: '{"app":"demo-service"}' },
+        toolInfo: { type: "mcp", serverName: "argocd", name: "rollback_application" },
+      },
+    ],
+  } as never);
+
+  const [action] = t.handle({
+    type: "tool.approval_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:00:01Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-1", sourceEventId: "evt-1" }],
+  });
+
+  assert.equal(action?.kind, "approval");
+  if (action?.kind !== "approval") return;
+  assert.equal(action.approval.toolLabel, "argocd.rollback_application");
+  assert.match(action.approval.rationale, /Rolling back to 46/);
+  assert.match(action.approval.arguments, /demo-service/);
+});
+
+test("a tool call with no narration falls back to the agent's last words", () => {
+  const t = createTranslator("sess-1");
+  t.handle({
+    type: "model.message",
+    id: "evt-0",
+    createdAt: "2026-08-25T10:00:00Z",
+    threadId: "main",
+    finishReason: "stop",
+    content: "The deploy at 09:58 is the only change in the window.",
+  } as never);
+  t.handle({
+    type: "model.message",
+    id: "evt-1",
+    createdAt: "2026-08-25T10:00:01Z",
+    threadId: "main",
+    finishReason: "tool_calls",
+    content: "",
+    toolCalls: [
+      {
+        id: "call-2",
+        type: "function",
+        function: { name: "sync", arguments: "{}" },
+        toolInfo: { type: "mcp", serverName: "argocd", name: "sync" },
+      },
+    ],
+  } as never);
+
+  const [action] = t.handle({
+    type: "tool.approval_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:00:02Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-2", sourceEventId: "evt-1" }],
+  });
+  assert.equal(action?.kind, "approval");
+  if (action?.kind !== "approval") return;
+  assert.match(action.approval.rationale, /only change in the window/);
 });

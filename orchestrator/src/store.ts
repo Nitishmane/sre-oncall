@@ -44,6 +44,8 @@ export interface ApprovalRow {
   decided_at: number | null;
   decision: "approved" | "denied" | null;
   decided_by: string | null;
+  /** The agent's stated reason for the action, shown to whoever approves it. */
+  rationale: string;
 }
 
 const SCHEMA = `
@@ -90,6 +92,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   tool_call_id  TEXT NOT NULL,
   tool_label    TEXT NOT NULL,
   arguments     TEXT NOT NULL,
+  rationale     TEXT NOT NULL DEFAULT '',
   channel       TEXT,
   message_ts    TEXT,
   requested_at  INTEGER NOT NULL,
@@ -105,6 +108,14 @@ export function openStore(path: string) {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
+  // `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a database
+  // written before approvals carried a rationale needs the column adding. The
+  // duplicate-column error on an up-to-date database is the expected outcome.
+  try {
+    db.exec("ALTER TABLE approvals ADD COLUMN rationale TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Already present.
+  }
 
   const upsert = db.prepare(`
     INSERT INTO incidents (fingerprint, rule_uid, rule_name, org_id, status,
@@ -138,10 +149,18 @@ export function openStore(path: string) {
 
   const insertApproval = db.prepare(`
     INSERT INTO approvals (session_id, thread_id, tool_call_id, tool_label, arguments,
-                           channel, message_ts, requested_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                           rationale, channel, message_ts, requested_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id, tool_call_id) DO UPDATE SET
-      channel = excluded.channel, message_ts = excluded.message_ts
+      channel = excluded.channel, message_ts = excluded.message_ts,
+      -- A re-record after the Slack post must not blank out detail the first
+      -- write resolved, but it may fill in detail the first write lacked.
+      tool_label = CASE WHEN excluded.tool_label = 'unknown tool'
+                        THEN approvals.tool_label ELSE excluded.tool_label END,
+      arguments = CASE WHEN excluded.arguments = '' THEN approvals.arguments
+                       ELSE excluded.arguments END,
+      rationale = CASE WHEN excluded.rationale = '' THEN approvals.rationale
+                       ELSE excluded.rationale END
   `);
   const decideApproval = db.prepare(`
     UPDATE approvals SET decision = ?, decided_by = ?, decided_at = ?
@@ -219,12 +238,12 @@ export function openStore(path: string) {
 
     recordApprovalRequest(request: {
       sessionId: string; threadId: string; toolCallId: string;
-      toolLabel: string; arguments: string;
+      toolLabel: string; arguments: string; rationale?: string;
       channel: string | null; messageTs: string | null;
     }, now: number): void {
       insertApproval.run(
         request.sessionId, request.threadId, request.toolCallId,
-        request.toolLabel, request.arguments,
+        request.toolLabel, request.arguments, request.rationale ?? "",
         request.channel, request.messageTs, now,
       );
     },
