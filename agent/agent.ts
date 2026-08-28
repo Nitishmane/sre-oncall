@@ -191,6 +191,26 @@ export const mcpServers: McpDefinition[] = [
   },
   {
     manifest: {
+      name: "raw-file",
+      type: "remote",
+      description:
+        "Read a file from the deploy repository at an exact git ref, returned verbatim as text. " +
+        "This is how you obtain the previous good contents of a manifest before opening a revert " +
+        "pull request: GitHub's get_file_contents cannot return file bytes here.",
+      url: env("MCP_RAW_FILE_URL") || "http://127.0.0.1:8106/mcp",
+    },
+    attachment: {
+      name: "raw-file",
+      enableTools: ["@all"],
+      // Reading a file at a ref changes nothing, and gating it would recreate
+      // the deadlock this server exists to break.
+      requireApprovalForTools: [],
+      preloadTools: ["read_repo_file"],
+    },
+    requiresEnv: ["GITHUB_REPO"],
+  },
+  {
+    manifest: {
       name: "notion",
       type: "remote",
       description:

@@ -90,6 +90,40 @@ services:
     ports: ["127.0.0.1:8103:8103"]
     restart: unless-stopped
 
+  # Reads a file from the deploy repository and returns it as TEXT.
+  #
+  # Two limitations meet badly here. GitHub's `get_file_contents` returns the
+  # file in an MCP `resource` block, and the harness forwards only `text`
+  # blocks to the model — so the agent sees "successfully downloaded text file
+  # (SHA: …)" and never the bytes. The documented fallback, `curl` in the
+  # sandbox, cannot run either: the sandbox fails to initialise on macOS
+  # because its `git ls-remote` hits the Xcode command-line-tools prompt.
+  #
+  # Between them the agent has no way to read a file exactly, so it cannot
+  # produce a revert it can vouch for — and it correctly refuses to guess.
+  mcp-raw-file:
+    image: node:22-alpine
+    mem_limit: 384m
+    working_dir: /srv
+    volumes:
+      - ./raw-file-server.mjs:/srv/raw-file-server.mjs:ro
+    command:
+      - npx
+      - -y
+      - supergateway
+      - --stdio
+      - "node /srv/raw-file-server.mjs"
+      - --outputTransport
+      - streamableHttp
+      - --port
+      - "8106"
+    environment:
+      # Scoped to one repository on purpose: a general URL fetcher handed to an
+      # agent that reads attacker-influenced text is an SSRF primitive.
+      RAW_FILE_REPO: ${GITHUB_REPO}
+    ports: ["127.0.0.1:8106:8106"]
+    restart: unless-stopped
+
   mcp-notion:
     image: node:22-alpine
     mem_limit: 1500m

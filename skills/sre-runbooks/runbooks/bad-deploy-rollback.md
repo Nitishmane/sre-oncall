@@ -42,14 +42,16 @@ the cause is still committed. The fix has to land in git.
    reach you. The SHA is real and the call succeeded — the bytes are simply
    not in what you can see. Do not keep retrying it with different `fields`.
 
-   The deploy repository is public, so fetch the raw file directly:
+   Use **`read_repo_file`** on the `raw-file` server instead. It takes
+   `owner`, `repo`, `ref` and `path`, and returns the whole file as text:
 
    ```
-   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<good-sha>/<path>
+   read_repo_file(owner, repo, ref=<good-sha>, path=demo-env/k8s/deployment.yaml)
    ```
 
-   That is the whole file, exactly as it was. Pass it verbatim to
-   `create_or_update_file`.
+   That is the file exactly as it was at that commit. Pass it verbatim to
+   `create_or_update_file`. Do not use the sandbox for this — it may not be
+   available, and it is not needed.
 
    **Never retype or reconstruct the file from memory.**
    `create_or_update_file` replaces the *entire* file, so anything you fail to

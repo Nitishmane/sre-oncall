@@ -108,8 +108,9 @@ So, for anything that lives in git:
    previous good revision's content *verbatim*. Note that `get_file_contents`
    cannot give it to you — it returns the bytes in a `resource` block and only
    `text` blocks reach you, so all you see is
-   `successfully downloaded text file (SHA: …)`. Fetch the raw file in the
-   sandbox instead: `curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<sha>/<path>`.
+   `successfully downloaded text file (SHA: …)`. Use `read_repo_file` on the
+   `raw-file` server instead — it takes `owner`, `repo`, `ref`, `path` and
+   returns the whole file as text.
    Never retype it: anything you fail to reproduce is silently deleted, and a revert
    that quietly drops a `resources:` block has removed a production memory
    limit while claiming to be a revert. Then confirm your diff is the exact
