@@ -114,13 +114,17 @@ export function createPipeline(deps: PipelineDeps) {
 
     return slots.run(async () => {
       const started = await harness.startSession(
-        postmortemPrompt(alert, {
-          healingSessionId: incident.healing_session_id,
-          firstSeenAt: incident.first_seen_at,
-          incidentStartedAt: incident.started_at,
-          incidentResolvedAt: incident.resolved_at,
-          healingStartedAt: incident.last_triaged_at,
-        }),
+        postmortemPrompt(
+          alert,
+          {
+            healingSessionId: incident.healing_session_id,
+            firstSeenAt: incident.first_seen_at,
+            incidentStartedAt: incident.started_at,
+            incidentResolvedAt: incident.resolved_at,
+            healingStartedAt: incident.last_triaged_at,
+          },
+          config.GITHUB_REPO,
+        ),
         { kind: "postmortem", fingerprint: alert.fingerprint, rule: alert.ruleName },
       );
       store.recordPostmortem(alert.fingerprint, started.sessionId);

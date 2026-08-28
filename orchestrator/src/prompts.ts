@@ -54,7 +54,11 @@ export interface PostmortemFacts {
   healingStartedAt: number | null;
 }
 
-export function postmortemPrompt(alert: NormalizedAlert, facts: PostmortemFacts): string {
+export function postmortemPrompt(
+  alert: NormalizedAlert,
+  facts: PostmortemFacts,
+  deployRepo?: string,
+): string {
   return [
     "A Grafana alert has resolved. Write the postmortem.",
     "",
@@ -84,10 +88,32 @@ export function postmortemPrompt(alert: NormalizedAlert, facts: PostmortemFacts)
     "own healing session began, not an alert-lifecycle timestamp. Grafana,",
     "Kubernetes, and ArgoCD have no record of it.",
     "",
+    ...(deployRepo === undefined ? [] : [`deploy_repo: ${deployRepo}`, ""]),
     "Reconstruct the timeline from Grafana (alert state history, metrics),",
     "the Kubernetes event log, and ArgoCD sync history. Follow the",
     "postmortem-template skill and publish the page to the Notion Postmortems",
     "database.",
+    "",
+    "**Your final message is posted into the incident's chat thread**, where the",
+    "people who were watching this outage will read it. They already know it",
+    "broke; what they do not know is what ended it. So begin with exactly that,",
+    "before any timeline or analysis:",
+    "",
+    "```",
+    "RESOLVED   what actually fixed it — the merged pull request and its number,",
+    "           the sync that carried it, or the change someone made by hand.",
+    "           Name the specific thing. If it recovered on its own, say so",
+    "           plainly rather than taking credit for it.",
+    "WHY        why that change ended this failure, in one sentence.",
+    "EVIDENCE   the metric that confirms recovery, before and after, with the",
+    "           time it crossed back.",
+    "DURATION   how long the incident lasted, from the timestamps above.",
+    "FOLLOW-UP  what a human still has to do, or `none`.",
+    "```",
+    "",
+    "Then the full postmortem page goes to Notion, not into the thread — link it",
+    "rather than pasting it. Do not claim a fix you have not verified: if the",
+    "metric recovered but you cannot say what changed, say that.",
   ].join("\n");
 }
 
