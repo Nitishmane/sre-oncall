@@ -175,10 +175,10 @@ instead of implying a page appeared.)*
 
 ### 2:45–3:00 — The console and the close
 
-**Screen:** `localhost:3100`, signed out, then the GitHub OAuth prompt.
+**Screen:** `localhost:3100`, signed out, then the sign-in form.
 
 **Say:** "The chat console can start harness sessions on a live cluster, so
-it's never public — GitHub OAuth plus an allowlist that fails closed, and the
+it's never public — a sign-in whose account list fails closed, and the
 browser never sees the tunnel or its token. That's SRE-Oncall: an alert, an
 investigation over real MCP tools, a gated fix, and a written record — built
 on TrueForge."
@@ -215,7 +215,7 @@ the fault and the incident store need resetting.
 | Metric recovery → alert auto-resolve → postmortem session | Postmortem session creation only fires once a healing session recorded a `healing_session_id` — which requires a completed healing run. Blocked transitively. |
 | Notion postmortem page | Code path exists (`mcp/README.md` lists the bridge); never verified against a real Notion database in this project. |
 | Slack incident threads + Block Kit approvals | Code and unit tests exist; never verified against a live Slack workspace in this project. |
-| Console auth wall (OAuth + allowlist, proxy) | Verified locally: unauthenticated requests get 401/redirect, as claimed in the commit that added it. Not yet deployed to Vercel. |
+| Console auth wall (username/password, proxy) | Verified locally against a production build: unauthenticated requests get 401/redirect, a wrong password and an unknown user are refused identically, and a valid session stops working the moment its account leaves `CONSOLE_USERS`. |
 | ArgoCD / Terraform MCP bridges | Verified reachable from a live harness (`grafana 65 tools, kubernetes 20, terraform 9` per `mcp/README.md`); ArgoCD and Notion bridges were not part of that verification pass. |
 
 If Plan A doesn't materialize before the recording deadline, cut the script to

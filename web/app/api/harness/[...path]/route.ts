@@ -1,12 +1,12 @@
 import { auth } from "../../../../auth.ts";
-import { isAllowed, parseAllowlist } from "../../../../lib/allowlist.ts";
+import { isKnownUser, parseConsoleUsers } from "../../../../lib/credentials.ts";
 import { forwardableHeaders, safeUpstreamPath, upstreamUrl } from "../../../../lib/proxy.ts";
 
 /**
  * The harness proxy — the only path from the browser to the agent.
  *
  * The browser sends a same-origin request with its session cookie. This handler
- * re-checks the session *and* the allowlist (middleware already did, but this
+ * re-checks the session *and* the account (middleware already did, but this
  * route attaches a bearer that grants full harness access, so it does not
  * delegate that decision), then forwards to the orchestrator's authenticated
  * `/chat` proxy with the server-side bridge token.
@@ -23,7 +23,7 @@ type Params = { params: Promise<{ path: string[] }> };
 async function handler(req: Request, { params }: Params): Promise<Response> {
   const session = await auth();
   const login = session?.user?.name;
-  if (!isAllowed(login, parseAllowlist(process.env["CHAT_ALLOWLIST"]))) {
+  if (!isKnownUser(login, parseConsoleUsers(process.env["CONSOLE_USERS"]))) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

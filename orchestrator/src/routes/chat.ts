@@ -5,7 +5,7 @@ import type { Logger } from "../logger.ts";
 /**
  * `/chat/*` — the ONLY thing the ngrok tunnel exposes.
  *
- * The Vercel chatbox authenticates the user with GitHub OAuth (allowlisted),
+ * The Vercel chatbox authenticates the user against its own account list,
  * then its server-side route handler forwards here with the bridge bearer.
  * We re-verify that bearer and proxy to the local TrueForge API. Raw TrueForge
  * is never tunneled: its local mode has no login of its own.

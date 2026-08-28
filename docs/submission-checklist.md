@@ -32,7 +32,7 @@ git history in this repository; "outstanding" means it needs action before
 4. **Record the demo video** using `docs/demo-script.md`.
 5. **Wire up at least one of Slack or the console for real**, so the
    approval-gate beat in the video is a real human clicking a real button,
-   not a description of one. The console (GitHub OAuth, no external
+   not a description of one. The console (username/password, no external
    workspace needed) is the lower-setup-cost option.
 6. **Visually re-check the recorded video** for anything that slipped past
    the grep check above — a Grafana admin token minted on screen, a

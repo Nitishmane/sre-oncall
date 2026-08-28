@@ -1,14 +1,35 @@
+import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
 import { signIn } from "../../auth.ts";
 
 /**
  * The auth wall. Deliberately says why access is restricted rather than just
  * refusing: this console can start sessions that change a live cluster.
  */
-export default function SignIn({
+export default async function SignIn({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  const { error } = await searchParams;
+
+  async function authenticate(formData: FormData) {
+    "use server";
+    try {
+      await signIn("credentials", {
+        username: formData.get("username"),
+        password: formData.get("password"),
+        redirectTo: "/",
+      });
+    } catch (err) {
+      // A successful sign-in also leaves through this catch: `signIn` performs
+      // the redirect by throwing, and that error is not an AuthError, so it has
+      // to be re-thrown for Next to act on it.
+      if (err instanceof AuthError) redirect("/signin?error=CredentialsSignin");
+      throw err;
+    }
+  }
+
   return (
     <main
       style={{
@@ -32,22 +53,25 @@ export default function SignIn({
           SRE-Oncall console
         </h1>
         <p style={{ color: "var(--console-muted)", fontSize: "0.9rem", lineHeight: 1.6 }}>
-          This console can start agent sessions against a live cluster, so access
-          is limited to an allowlist of GitHub accounts.
+          This console can start agent sessions against a live cluster, so it is
+          limited to accounts issued for it. Sign in with the credentials you
+          were given.
         </p>
 
-        <ErrorNote searchParams={searchParams} />
+        <ErrorNote error={error} />
 
-        <form
-          action={async () => {
-            "use server";
-            await signIn("github", { redirectTo: "/" });
-          }}
-        >
+        <form action={authenticate} style={{ marginTop: "1.5rem" }}>
+          <Field label="Username" name="username" type="text" autoComplete="username" />
+          <Field
+            label="Password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+          />
           <button
             type="submit"
             style={{
-              marginTop: "1.5rem",
+              marginTop: "1.25rem",
               width: "100%",
               padding: "0.7rem 1rem",
               borderRadius: "0.5rem",
@@ -58,7 +82,7 @@ export default function SignIn({
               cursor: "pointer",
             }}
           >
-            Continue with GitHub
+            Sign in
           </button>
         </form>
       </div>
@@ -66,18 +90,55 @@ export default function SignIn({
   );
 }
 
-async function ErrorNote({
-  searchParams,
+function Field({
+  label,
+  name,
+  type,
+  autoComplete,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  label: string;
+  name: string;
+  type: string;
+  autoComplete: string;
 }) {
-  const { error } = await searchParams;
+  return (
+    <label style={{ display: "block", marginTop: "1rem" }}>
+      <span
+        style={{
+          display: "block",
+          fontSize: "0.78rem",
+          color: "var(--console-muted)",
+          marginBottom: "0.35rem",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        name={name}
+        type={type}
+        autoComplete={autoComplete}
+        required
+        style={{
+          width: "100%",
+          padding: "0.6rem 0.75rem",
+          borderRadius: "0.5rem",
+          border: "1px solid var(--console-border)",
+          background: "#0f131a",
+          color: "var(--console-text)",
+          fontSize: "0.92rem",
+        }}
+      />
+    </label>
+  );
+}
+
+function ErrorNote({ error }: { error: string | undefined }) {
   if (error === undefined) return null;
-  // AccessDenied is the allowlist rejecting a valid GitHub login — worth saying
-  // plainly, because "sign-in failed" would send people to check their password.
+  // Never distinguish "no such account" from "wrong password": that difference
+  // tells an attacker which usernames are worth guessing against.
   const message =
-    error === "AccessDenied"
-      ? "That GitHub account is not on the allowlist for this console."
+    error === "CredentialsSignin"
+      ? "Incorrect username or password."
       : "Sign-in failed. Try again, or check the console configuration.";
   return (
     <p

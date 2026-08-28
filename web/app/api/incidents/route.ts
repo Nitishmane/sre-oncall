@@ -1,5 +1,5 @@
 import { auth } from "../../../auth.ts";
-import { isAllowed, parseAllowlist } from "../../../lib/allowlist.ts";
+import { isKnownUser, parseConsoleUsers } from "../../../lib/credentials.ts";
 
 /**
  * Incident and approval history for the timeline panel. Served by the
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request): Promise<Response> {
   const session = await auth();
-  if (!isAllowed(session?.user?.name, parseAllowlist(process.env["CHAT_ALLOWLIST"]))) {
+  if (!isKnownUser(session?.user?.name, parseConsoleUsers(process.env["CONSOLE_USERS"]))) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
