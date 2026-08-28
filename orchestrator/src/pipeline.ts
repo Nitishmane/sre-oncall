@@ -92,6 +92,16 @@ export function createPipeline(deps: PipelineDeps) {
     return slots.run(async () => {
       // Counted before the call: an attempt against a dead harness still costs
       // a slot in the hourly budget.
+      // A fresh occurrence of an alert that had already been written up starts
+      // its own thread. Released here rather than after the postmortem
+      // announces: `announce` is fire-and-forget, so releasing next to it was a
+      // race — the postmortem's own follower looked the thread up after it had
+      // gone, and its RESOLVED summary never reached the channel.
+      // `recordSeen` has already flipped the status to firing by now, so the
+      // signal that this is a *new* occurrence is the previous one's write-up.
+      if (store.get(alert.fingerprint)?.postmortem_session_id != null) {
+        store.releaseIncidentThread(alert.fingerprint);
+      }
       store.recordTriageAttempt(alert.fingerprint, now());
       const started = await harness.startSession(healingPrompt(alert, config.GITHUB_REPO), {
         kind: "healing",
@@ -151,10 +161,6 @@ export function createPipeline(deps: PipelineDeps) {
       );
       store.recordPostmortem(alert.fingerprint, started.sessionId);
       announce(started, "postmortem", alert.ruleName, alert.fingerprint);
-      // The postmortem is the last thing this incident produces, so the thread
-      // has served its purpose. Released *after* announcing, so the postmortem
-      // itself still lands in the thread it belongs to.
-      store.releaseIncidentThread(alert.fingerprint);
       return { fingerprint: alert.fingerprint, action: "postmortem" as const, sessionId: started.sessionId };
     });
   }

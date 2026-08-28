@@ -149,7 +149,11 @@ export function openStore(path: string) {
       resolved_at = excluded.resolved_at
   `);
   const selectOne = db.prepare("SELECT * FROM incidents WHERE fingerprint = ?");
-  const markTriaged = db.prepare("UPDATE incidents SET last_triaged_at = ?, healing_session_id = ? WHERE fingerprint = ?");
+  // A new occurrence clears the previous one's postmortem, so the write-up for
+  // *this* incident is not skipped as "already done".
+  const markTriaged = db.prepare(
+    "UPDATE incidents SET last_triaged_at = ?, healing_session_id = ?, postmortem_session_id = NULL WHERE fingerprint = ?",
+  );
   const markPostmortem = db.prepare("UPDATE incidents SET postmortem_session_id = ? WHERE fingerprint = ?");
   const insertTriage = db.prepare("INSERT INTO triage_log (fingerprint, at) VALUES (?, ?)");
   const countTriages = db.prepare("SELECT COUNT(*) AS n FROM triage_log WHERE at >= ?");

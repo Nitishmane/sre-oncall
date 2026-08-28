@@ -367,17 +367,34 @@ test("an incident with no thread yet reports none", () => {
   assert.equal(store.incidentThread("never-seen"), undefined);
 });
 
-test("a thread is released once the incident is written up, so a recurrence starts fresh", () => {
-  // A Grafana fingerprint is stable for the life of the rule. Without release,
-  // the same alert firing next month would append to this month's thread.
+test("resolving does not drop the thread; the next occurrence does", async () => {
+  // Releasing next to `announce` was a race: announce is fire-and-forget, so
+  // the postmortem's follower looked the thread up after it had gone and its
+  // RESOLVED summary never reached the channel. Release now happens when the
+  // *next* incident for that fingerprint starts.
   const store = openStore(":memory:");
-  const now = 1_735_000_000_000;
-  store.claimIncidentThread("fp-1", "C123", "1735.0001", now);
-  store.releaseIncidentThread("fp-1");
-  assert.equal(store.incidentThread("fp-1"), undefined);
+  const { pipeline } = harnessUnderTest(testConfig(), store);
+  store.claimIncidentThread("fp-1", "C123", "1735.0001", 1_735_000_000_000);
 
-  const later = store.claimIncidentThread("fp-1", "C123", "1799.0001", now + 86_400_000);
-  assert.equal(later.thread_ts, "1799.0001", "a later occurrence opens its own thread");
+  pipeline.ingest([alert({ status: "resolved" })]);
+  await settle();
+  assert.equal(
+    store.incidentThread("fp-1")?.thread_ts,
+    "1735.0001",
+    "the postmortem still has to post here",
+  );
+
+  // A written-up incident is what marks the previous occurrence as finished.
+  store.recordPostmortem("fp-1", "pm-1");
+  pipeline.ingest([alert({ status: "firing" })]);
+  await settle();
+  assert.equal(store.incidentThread("fp-1"), undefined, "a new incident starts a new thread");
+  assert.equal(
+    store.get("fp-1")?.postmortem_session_id,
+    null,
+    "the new occurrence must be eligible for its own postmortem",
+  );
+  store.close();
 });
 
 test("a resolved alert repaints its announcement, even with no postmortem to write", async () => {
