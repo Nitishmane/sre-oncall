@@ -158,6 +158,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "ContainerRestartsSpiking"
     condition = "threshold"
+    # Backoff stretches the interval between restarts until the rate drops
+    # below the threshold — the alert clears itself while the pod is still
+    # dying. Hold it open until the restarts have genuinely stopped.
+    keep_firing_for = "10m"
     # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
     # Left at the default (NoData) each of these fires DatasourceNoData forever.
     no_data_state  = "OK"
@@ -201,6 +205,13 @@ resource "grafana_rule_group" "demo_service" {
     no_data_state  = "OK"
     exec_err_state = "Error"
     for       = "1m"
+    # A crashloop is not resolved just because every pod happened to be Running
+    # at one instant. With backoff the pods spend stretches up together, and a
+    # 30s average dips under the threshold — observed resolving this alert, and
+    # writing a postmortem, while all three replicas were still CrashLoopBackOff
+    # and nothing had been fixed. `for` controls how fast it fires;
+    # `keep_firing_for` controls how sure we have to be that it is over.
+    keep_firing_for = "5m"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
       summary = "demo-service has fewer ready replicas than desired"

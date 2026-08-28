@@ -77,8 +77,29 @@ function forwardableHeaders(req: IncomingMessage): Headers {
   return headers;
 }
 
+/** Best-effort error response; the socket may already be gone. */
+function fail(res: ServerResponse, status: number, message: string): void {
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify({ error: { message } }));
+}
+
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-  void (async () => {
+  // A rejection here used to be unhandled, which takes the whole process down —
+  // an upstream ECONNRESET mid-stream killed the proxy and every model call
+  // with it. A proxy that dies is worse than the rate limit it exists to
+  // absorb, so nothing in here is allowed to escape.
+  void handle(req, res).catch((err: unknown) => {
+    console.error(`[model-proxy] request failed: ${String(err)}`);
+    fail(res, 502, `model proxy: ${String(err)}`);
+  });
+});
+
+async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  {
     const started = Date.now();
     const target = `${UPSTREAM}${req.url ?? "/"}`;
     const body = await readBody(req);
@@ -95,8 +116,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         });
       } catch (err) {
         if (attempt === MAX_ATTEMPTS - 1) {
-          res.writeHead(502, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: { message: `model proxy: ${String(err)}` } }));
+          fail(res, 502, `model proxy: ${String(err)}`);
           return;
         }
         await sleep(Math.min(2 ** attempt * 500, MAX_WAIT_MS));
@@ -110,12 +130,19 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
           return;
         }
         // Streamed through, so server-sent token streams stay unbuffered.
+        // Once headers are out we cannot turn a mid-stream failure into an
+        // error response — the client has already been told this is a 200 —
+        // so the most we can do is end the response cleanly and stay alive.
         const reader = upstream.body.getReader();
         req.on("close", () => void reader.cancel().catch(() => {}));
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(value);
+          }
+        } catch (err) {
+          console.error(`[model-proxy] upstream stream broke: ${String(err)}`);
         }
         res.end();
         return;
@@ -130,8 +157,18 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       );
       await sleep(delay);
     }
-  })();
+  }
+}
+
+// Last resort. Anything that still escapes is logged, never fatal: the harness
+// has no retry of its own, so this process staying up is the whole point.
+process.on("unhandledRejection", (reason) => {
+  console.error(`[model-proxy] unhandled rejection: ${String(reason)}`);
 });
+process.on("uncaughtException", (err) => {
+  console.error(`[model-proxy] uncaught exception: ${String(err)}`);
+});
+server.on("clientError", (_err, socket) => socket.destroy());
 
 server.listen(PORT, () => {
   console.log(`[model-proxy] :${PORT} -> ${UPSTREAM}, up to ${MAX_ATTEMPTS} attempts`);
