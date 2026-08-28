@@ -168,8 +168,7 @@ and Deny at the same moment cannot both submit. Read the log at
 ## Prior art
 
 The concurrency model, trust boundary, and prompt-framing discipline are ported
-from a production internal Slack SRE agent; the anonymized analysis is in
-`research/reference-agent-analysis.md`.
+from a production internal Slack SRE agent.
 
 ## AI assistance
 

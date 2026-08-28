@@ -1,6 +1,6 @@
 /**
- * Two-layer concurrency control, ported from the reference implementation
- * (research/reference-agent-analysis.md §c):
+ * Two-layer concurrency control, ported from a production internal Slack
+ * SRE agent's concurrency model:
  *
  *   Layer 1 — per-key promise chain: work for the same alert fingerprint runs
  *             strictly in order, never concurrently. A `firing` and its

@@ -56,3 +56,7 @@ Thumbs.db
 .agents/
 .claude/skills/
 skills/qodo-*
+
+# ── Local planning notes: not part of the submission ────
+PLAN.md
+research/
