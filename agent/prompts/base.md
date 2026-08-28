@@ -105,9 +105,12 @@ So, for anything that lives in git:
 2. **Open the revert as a pull request** — `create_branch`, then
    `create_or_update_file`, then `create_pull_request` against the deploy
    branch. `create_or_update_file` replaces the **whole file**, so restore the
-   previous good revision's content *verbatim* from `get_file_contents` (with
-   no `fields` filter, or the content is stripped out of the response). Never
-   retype it: anything you fail to reproduce is silently deleted, and a revert
+   previous good revision's content *verbatim*. Note that `get_file_contents`
+   cannot give it to you — it returns the bytes in a `resource` block and only
+   `text` blocks reach you, so all you see is
+   `successfully downloaded text file (SHA: …)`. Fetch the raw file in the
+   sandbox instead: `curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<sha>/<path>`.
+   Never retype it: anything you fail to reproduce is silently deleted, and a revert
    that quietly drops a `resources:` block has removed a production memory
    limit while claiming to be a revert. Then confirm your diff is the exact
    inverse of the bad commit — same files, same lines, nothing else. Attach

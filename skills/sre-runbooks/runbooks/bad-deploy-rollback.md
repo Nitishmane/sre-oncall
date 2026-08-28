@@ -34,21 +34,30 @@ the cause is still committed. The fix has to land in git.
    precisely which lines to put back, and it is what you check your own PR
    against at the end.
 2. `create_branch` from the deploy branch, e.g. `revert/<short-sha>`.
-3. **Fetch the previous good content and write it back verbatim.**
-   `get_file_contents` at the last good revision returns the whole file inline,
-   as a `resource` whose `text` is the complete source. Pass that text straight
-   to `create_or_update_file`.
+3. **Fetch the previous good content with `curl` in the sandbox.**
 
-   Two traps here, both of which have already produced a bad revert PR:
+   `get_file_contents` will *not* give you the file. It answers
+   `successfully downloaded text file (SHA: …)` and nothing else: the MCP
+   server returns the contents in a `resource` block, and only `text` blocks
+   reach you. The SHA is real and the call succeeded — the bytes are simply
+   not in what you can see. Do not keep retrying it with different `fields`.
 
-   - **Do not pass a `fields` filter to `get_file_contents`.** Narrowing it to
-     `name`/`path`/`sha`/`download_url` strips the content out of the response,
-     and you are left with metadata and a URL you cannot fetch.
-   - **Never retype or reconstruct the file from memory**, and do not try to
-     `curl` the `download_url` from a sandbox. `create_or_update_file` replaces
-     the *entire* file, so anything you fail to reproduce exactly is silently
-     deleted. A revert that quietly drops a `resources:` block has removed the
-     memory limit from a production workload while claiming to be a revert.
+   The deploy repository is public, so fetch the raw file directly:
+
+   ```
+   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<good-sha>/<path>
+   ```
+
+   That is the whole file, exactly as it was. Pass it verbatim to
+   `create_or_update_file`.
+
+   **Never retype or reconstruct the file from memory.**
+   `create_or_update_file` replaces the *entire* file, so anything you fail to
+   reproduce exactly is silently deleted — a revert that quietly drops a
+   `resources:` block has removed the memory limit from a production workload
+   while claiming to be a revert. If you cannot obtain the exact bytes, stop
+   and say so in the thread with both SHAs, rather than opening a PR you
+   cannot vouch for. Refusing is the correct outcome; guessing is not.
 
 4. **Check your own diff before opening the PR.** It must be the exact inverse
    of the bad commit's diff from step 1 — same files, same lines, nothing else.
