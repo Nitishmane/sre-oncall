@@ -72,6 +72,11 @@ function parseVerifier(encoded: string): Verifier | null {
   for (const value of [N, r, p]) {
     if (!Number.isInteger(value) || value < 1 || value > 1 << 22) return null;
   }
+  // Node's scrypt requires N to be a power of two and throws otherwise. Without
+  // this check a verifier like `scrypt$16385$8$1$...` parses, is kept, and then
+  // throws on every login for that account — a 500 rather than a clean refusal.
+  // A malformed entry must fail closed at parse time, like every other one here.
+  if ((N & (N - 1)) !== 0) return null;
   if (128 * N * r > 64 * 1024 * 1024) return null;
 
   const salt = Buffer.from(rawSalt, "base64");
@@ -128,14 +133,49 @@ const DECOY: Verifier = {
   hash: Buffer.alloc(KEY_LENGTH),
 };
 
+/**
+ * Caps how many scrypt derivations run at once.
+ *
+ * Each one holds 128 * N * r bytes — 16 MiB at the parameters above — and the
+ * sign-in route is public and unauthenticated. Without a cap, concurrent
+ * requests multiply that straight into the function's memory, so a handful of
+ * simultaneous bad logins can exhaust an instance. That is a cheaper attack
+ * than password guessing and it needs no correct credential at all.
+ *
+ * A cap is not a rate limit: it bounds memory, not attempts. Attempts stay
+ * bounded by the KDF's cost and by handing out generated passwords.
+ */
+const MAX_CONCURRENT_DERIVATIONS = 2;
+let running = 0;
+const waiting: (() => void)[] = [];
+
+async function acquire(): Promise<void> {
+  if (running < MAX_CONCURRENT_DERIVATIONS) {
+    running += 1;
+    return;
+  }
+  await new Promise<void>((resolve) => waiting.push(resolve));
+  running += 1;
+}
+
+function release(): void {
+  running -= 1;
+  waiting.shift()?.();
+}
+
 async function derive(password: string, verifier: Verifier): Promise<Buffer> {
-  return await scryptAsync(password, verifier.salt, verifier.hash.length, {
-    N: verifier.N,
-    r: verifier.r,
-    p: verifier.p,
-    // scrypt's default cap is 32 MiB; parseVerifier already bounds the request.
-    maxmem: 128 * verifier.N * verifier.r * 2,
-  });
+  await acquire();
+  try {
+    return await scryptAsync(password, verifier.salt, verifier.hash.length, {
+      N: verifier.N,
+      r: verifier.r,
+      p: verifier.p,
+      // scrypt's default cap is 32 MiB; parseVerifier already bounds the request.
+      maxmem: 128 * verifier.N * verifier.r * 2,
+    });
+  } finally {
+    release();
+  }
 }
 
 /**
