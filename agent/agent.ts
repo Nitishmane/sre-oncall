@@ -51,6 +51,12 @@ export const mcpServers: McpDefinition[] = [
       // rules forbid mutating alert rules in words rather than in policy.
       // Everything that changes what other humans see, or that can reach
       // arbitrary Grafana endpoints, stays gated.
+      // `grafana_api_request` reaches ANY Grafana endpoint, so it cannot be
+      // ungated — and gating it blocked a postmortem that only wanted to GET
+      // an alert rule. Removing it is the way out: everything the agent needs
+      // is available through a specific tool that is gated on its own merits,
+      // and a catch-all that can do anything is impossible to gate sensibly.
+      disableTools: ["grafana_api_request"],
       requireApprovalForTools: [
         "alerting_manage_routing",
         "create_annotation",
@@ -61,7 +67,6 @@ export const mcpServers: McpDefinition[] = [
         "create_snapshot",
         "delete_snapshot",
         "install_plugin",
-        "grafana_api_request",
         "update_dashboard",
         "create_dashboard",
         "delete_dashboard",
