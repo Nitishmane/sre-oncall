@@ -62,14 +62,23 @@ async function provisionModelProvider(): Promise<void> {
     );
   }
 
+  // The harness makes the model call and does not retry, so a 429 ends the turn
+  // — routinely over a two-second wait. Pointing it at `agent/scripts/model-proxy.ts`
+  // absorbs those. Empty means talk to the provider directly.
+  const baseUrl = process.env[`${provider.replace(/-/g, "_").toUpperCase()}_BASE_URL`] ?? "";
+
   await client.settings.modelProviders.createOrUpdate({
     manifest: {
       type: provider,
       auth: { apiKey },
+      ...(baseUrl === "" ? {} : { baseUrl }),
       models: models as TrueForgeApi.ConfiguredModel[],
     } as TrueForgeApi.ModelProviderManifest,
   });
-  ok(`${provider} (${models.map((model) => model.name).join(", ")})`);
+  ok(
+    `${provider} (${models.map((model) => model.name).join(", ")})` +
+      (baseUrl === "" ? "" : ` via ${baseUrl}`),
+  );
 }
 
 /** `--list-models` — what this harness can be pointed at. */

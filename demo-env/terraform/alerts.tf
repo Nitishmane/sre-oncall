@@ -224,12 +224,18 @@ resource "grafana_rule_group" "demo_service" {
         # Measured during a real crashloop it read `0 0 0 3 3 3 0 0 3 3 3`,
         # which never sustains long enough to fire: the deployment was entirely
         # down and this alert sat in Pending indefinitely.
+        #
+        # The window is 30s (three samples), not the 5m first tried. 5m smoothed
+        # the flapping away completely but took ~7 minutes to clear after
+        # recovery, which is longer than the whole demo video. 30s is the
+        # shortest window that still averages, and it trades some flap
+        # resistance for a resolve that happens while anyone is still watching.
         expr    = <<-PROMQL
           avg_over_time(
             (
               kube_deployment_spec_replicas{namespace="${var.demo_namespace}", deployment="demo-service"}
                 - kube_deployment_status_replicas_ready{namespace="${var.demo_namespace}", deployment="demo-service"}
-            )[5m:30s]
+            )[30s:10s]
           )
         PROMQL
       })
