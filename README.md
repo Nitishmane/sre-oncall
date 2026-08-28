@@ -96,6 +96,22 @@ the pipeline runs headless.
 alert rule and one runbook. `heal-reset.sh` returns the service to steady state,
 which resolves the alert and triggers the postmortem session.
 
+## Code-review skills
+
+`skills-lock.json` pins the Qodo review skills this repo uses. They are **not**
+committed — restore them with:
+
+```bash
+npx skills experimental_install     # from skills-lock.json
+# or, to add them fresh:
+npx skills add qodo-ai/qodo-skills/skills
+```
+
+They live in `.agents/skills/` (gitignored) because they are someone else's
+source: tracked, they dominated the pull-request diff and Qodo spent two whole
+reviews reporting findings against its own skill files instead of this project's
+code.
+
 ## Changing the model
 
 The model is configuration. `SRE_ONCALL_MODEL` is a `provider/model` FQN whose
@@ -103,8 +119,9 @@ provider half decides which provider gets registered on the harness and which
 API key is read:
 
 ```bash
+SRE_ONCALL_MODEL=openai/gpt-5-6-luna       # + OPENAI_API_KEY  (the default)
+SRE_ONCALL_MODEL=openai/gpt-5-6-sol        # + OPENAI_API_KEY  (stronger, 20x the output price)
 SRE_ONCALL_MODEL=anthropic/claude-opus-5   # + ANTHROPIC_API_KEY
-SRE_ONCALL_MODEL=openai/gpt-5-6-sol        # + OPENAI_API_KEY
 npm run provision                          # re-run after changing it
 npm run provision -- --list-models         # what this harness offers
 ```

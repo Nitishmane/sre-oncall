@@ -3,8 +3,8 @@
 ## Status, stated plainly
 
 This script assumes a working model provider. As of this writing the project has
-**not completed a single real healing session**: there is no funded Anthropic
-key in this environment, so `npm run provision` either skips model-provider
+**not completed a single real healing session**: there is no funded model-provider
+key in this environment (`OPENAI_API_KEY`, per `SRE_ONCALL_MODEL=openai/gpt-5-6-sol`), so `npm run provision` either skips model-provider
 registration or a turn against the harness fails on the model call itself. The
 orchestrator, the admission policy, the concurrency control, the trust
 boundary, the Slack approval-gate plumbing, and the console's auth wall are all
@@ -17,7 +17,7 @@ this environment doesn't have credit for.
 
 Two ways to record, in order of preference:
 
-- **Plan A** — get an Anthropic key with credit before recording, run
+- **Plan A** — get an OpenAI key with credit before recording, run
   `npm run provision`, and record the full script below as written. Every beat
   in it becomes true.
 - **Plan B** — record without a working model provider. Beats 1–3 and 6 still

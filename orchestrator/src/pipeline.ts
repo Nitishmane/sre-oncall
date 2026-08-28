@@ -87,7 +87,7 @@ export function createPipeline(deps: PipelineDeps) {
       // Counted before the call: an attempt against a dead harness still costs
       // a slot in the hourly budget.
       store.recordTriageAttempt(alert.fingerprint, now());
-      const started = await harness.startSession(healingPrompt(alert), {
+      const started = await harness.startSession(healingPrompt(alert, config.GITHUB_REPO), {
         kind: "healing",
         fingerprint: alert.fingerprint,
         rule: alert.ruleName,
@@ -114,17 +114,25 @@ export function createPipeline(deps: PipelineDeps) {
 
     return slots.run(async () => {
       const started = await harness.startSession(
-        postmortemPrompt(alert, {
-          healingSessionId: incident.healing_session_id,
-          firstSeenAt: incident.first_seen_at,
-          incidentStartedAt: incident.started_at,
-          incidentResolvedAt: incident.resolved_at,
-          healingStartedAt: incident.last_triaged_at,
-        }),
+        postmortemPrompt(
+          alert,
+          {
+            healingSessionId: incident.healing_session_id,
+            firstSeenAt: incident.first_seen_at,
+            incidentStartedAt: incident.started_at,
+            incidentResolvedAt: incident.resolved_at,
+            healingStartedAt: incident.last_triaged_at,
+          },
+          config.GITHUB_REPO,
+        ),
         { kind: "postmortem", fingerprint: alert.fingerprint, rule: alert.ruleName },
       );
       store.recordPostmortem(alert.fingerprint, started.sessionId);
       announce(started, "postmortem", alert.ruleName, alert.fingerprint);
+      // The postmortem is the last thing this incident produces, so the thread
+      // has served its purpose. Released *after* announcing, so the postmortem
+      // itself still lands in the thread it belongs to.
+      store.releaseIncidentThread(alert.fingerprint);
       return { fingerprint: alert.fingerprint, action: "postmortem" as const, sessionId: started.sessionId };
     });
   }

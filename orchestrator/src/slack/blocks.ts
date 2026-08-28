@@ -36,9 +36,28 @@ export function decodeRef(value: string | undefined): ApprovalRef | null {
 export const APPROVE_ACTION_ID = "sre_oncall_approve";
 export const DENY_ACTION_ID = "sre_oncall_deny";
 
+/**
+ * Links found in the agent's reasoning — a pull request it opened, a dashboard
+ * it wants you to look at. Slack renders a bare URL as a link already; this is
+ * here to pull the important one to the top of the message, because "look at
+ * the PR before approving" only works if the PR is visible.
+ */
+const LINK = /https?:\/\/[^\s<>|)\]]+/g;
+
+function reviewLinks(text: string): string[] {
+  const seen = new Set<string>();
+  for (const url of text.match(LINK) ?? []) {
+    // Trailing punctuation belongs to the sentence, not the URL.
+    seen.add(url.replace(/[.,;:]+$/, ""));
+  }
+  return [...seen].slice(0, 4);
+}
+
 export function approvalBlocks(approval: PendingApproval, restricted: boolean): KnownBlock[] {
   const ref = encodeRef(approval);
-  return [
+  const rationale = approval.rationale.trim();
+  const links = reviewLinks(`${rationale}\n${approval.arguments}`);
+  const blocks: KnownBlock[] = [
     {
       type: "section",
       text: {
@@ -46,11 +65,39 @@ export function approvalBlocks(approval: PendingApproval, restricted: boolean): 
         text: `*Approval needed* — the agent wants to run \`${approval.toolLabel}\`.`,
       },
     },
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: "```" + approval.arguments + "```" },
+  ];
+
+  // The agent's case for the change, in its own words. Without this an approver
+  // is being asked to rubber stamp an opaque function call.
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text:
+        rationale !== ""
+          ? truncate(rationale, MAX_RATIONALE_CHARS)
+          : "_The agent gave no reason for this action. Treat that as a reason to deny._",
     },
-    {
+  });
+
+  if (links.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Review before approving:*\n${links.map((url) => `• <${url}>`).join("\n")}`,
+      },
+    });
+  }
+
+  if (approval.arguments.trim() !== "") {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: "*Exact call*\n```" + approval.arguments + "```" },
+    });
+  }
+
+  blocks.push(...([{
       type: "actions",
       elements: [
         {
@@ -80,7 +127,15 @@ export function approvalBlocks(approval: PendingApproval, restricted: boolean): 
         },
       ],
     },
-  ];
+  ] as KnownBlock[]));
+
+  return blocks;
+}
+
+const MAX_RATIONALE_CHARS = 2400;
+
+function truncate(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}\n… (truncated)` : text;
 }
 
 export function decidedBlocks(

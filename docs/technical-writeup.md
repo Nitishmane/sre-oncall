@@ -300,7 +300,7 @@ an alert is even allowed onto the queue in the first place.
 ## Model provider as configuration
 
 `agent/agent.ts` treats the model as a `provider/model` FQN
-(`SRE_ONCALL_MODEL`, e.g. `anthropic/claude-opus-5`). The provider half
+(`SRE_ONCALL_MODEL`, e.g. `openai/gpt-5-6-sol`). The provider half
 decides both which provider gets registered on the harness and which API-key
 env var is read (`apiKeyEnvFor`: `openai` → `OPENAI_API_KEY`, `google-gemini`
 → `GOOGLE_GEMINI_API_KEY`, by the harness's own naming convention). Model
@@ -311,6 +311,40 @@ against both `anthropic/claude-opus-5` and `openai/gpt-5-6-sol` in the same
 harness instance with zero code changes (`5b61428`), which is the actual
 claim being made here — not that both were used to run a real incident, only
 that provisioning and registration work for either.
+
+## Known limitations in the approval boundary
+
+Two gaps a code review found, both real, both left open deliberately and worth
+stating rather than glossing.
+
+**A prompt is not an access control.** `alerting_manage_rules` on the Grafana
+MCP performs reads *and* create/update/delete behind a single tool name, and
+`operation: "list"` is how any investigation begins. Gating it stopped the agent
+before it could look at the alert that woke it, so it is ungated and the
+operating rules forbid mutation in words. That is an instruction, not a control:
+a prompt injection or a model error could still edit an alert rule. The
+enforceable fix is argument-aware authorization, or a second read-only Grafana
+MCP instance for investigation with the writable one gated — neither of which
+the harness supports today.
+
+**`create_or_update_file` can target the deploy branch directly.** The GitHub
+attachment ungates branch and file creation so the agent can open a revert pull
+request without asking. But nothing in the tool stops it writing straight to
+`main`, and ArgoCD auto-syncs `main` — so a mistaken or injected call could
+reach production without a pull request at all, bypassing the very gate this
+design is built on. The prompt says to open a PR; again, that is an instruction.
+
+The enforceable fix for the second is credential separation: give the agent a
+fine-grained token that can create branches and pull requests but cannot push to
+`main`, and let branch protection reject anything else. This deployment does not
+do that — the agent uses a personal access token with the same rights as the
+human — because the demo's own `release-bad.sh` pushes to `main` to simulate a
+release, and both identities are the same account. Splitting them is the right
+next change, and it is a credentials change rather than a code one.
+
+Neither gap is hypothetical-only: both are reachable by any input the agent
+treats as data, which is precisely why the trust boundary above passes
+identifiers rather than alert text.
 
 ## Testing
 

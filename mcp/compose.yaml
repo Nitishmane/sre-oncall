@@ -1,3 +1,15 @@
+# Memory caps are deliberate, and 1500m is chosen, not arbitrary. These servers grow steadily under load — notion
+# went from 80 MB to 1.8 GB inside an hour — and Docker Desktop only has 7.6 GB
+# here, shared with the kind node. Left uncapped they starved the Kubernetes API
+# server until it answered `TLS handshake timeout`, which fired every alert at
+# once, which started more sessions, which used more memory. A capped server is
+# restarted by Docker; a starved cluster takes the whole demo down.
+#
+# 768m was too tight: argocd reached 94% of it and the containers restarted
+# mid-investigation, which surfaces to the agent as `MCP error -32001: Request
+# timed out` and loses the session. 1500m x5 leaves roughly half the Docker
+# allocation for the kind node. These servers still grow, so restart the stack
+# between demo runs rather than relying on the cap to be hit.
 # Local stdio → streamable-HTTP bridges for the MCP servers TrueForge can only
 # reach over a URL. See mcp/README.md.
 #
@@ -14,6 +26,7 @@ name: sre-oncall-mcp
 services:
   mcp-grafana:
     image: mcp/grafana:latest
+    mem_limit: 1500m
     command: ["-t", "streamable-http", "--address", "0.0.0.0:8100"]
     environment:
       # NOT ${GRAFANA_URL}: that is the host-side URL used by the setup scripts
@@ -26,6 +39,7 @@ services:
 
   mcp-kubernetes:
     image: node:22-alpine
+    mem_limit: 1500m
     command:
       - npx
       - -y
@@ -47,6 +61,7 @@ services:
 
   mcp-argocd:
     image: node:22-alpine
+    mem_limit: 1500m
     command:
       - npx
       - -y
@@ -70,12 +85,14 @@ services:
   # CLI, which failed with EPIPE the moment a request arrived.
   mcp-terraform:
     image: hashicorp/terraform-mcp-server:latest
+    mem_limit: 1500m
     command: ["streamable-http", "--transport-port", "8103", "--transport-host", "0.0.0.0"]
     ports: ["127.0.0.1:8103:8103"]
     restart: unless-stopped
 
   mcp-notion:
     image: node:22-alpine
+    mem_limit: 1500m
     command:
       - npx
       - -y

@@ -47,3 +47,12 @@ Thumbs.db
 
 # TypeScript incremental build state — machine-local, never useful in review.
 *.tsbuildinfo
+
+# skills.sh — third-party skills, pinned by skills-lock.json and restored with
+# `npx skills experimental_install`. They were tracked briefly, and it cost two
+# entire Qodo reviews: the vendored markdown dominated the PR diff, so a review
+# of 3,000 lines of orchestrator and agent code reported only findings against
+# Qodo's own skill files. Someone else's source does not belong in this diff.
+.agents/
+.claude/skills/
+skills/qodo-*

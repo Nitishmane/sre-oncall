@@ -336,3 +336,46 @@ test("a successful triage sets the cooldown", async () => {
   assert.equal(store.get("fp-1")?.last_triaged_at, 1_000_000);
   store.close();
 });
+
+test("one incident claims one Slack thread, whatever else it spawns", () => {
+  // An alert produces a healing session, then a postmortem when it resolves,
+  // then possibly a re-triage. Each used to post its own top-level message, so
+  // one outage was announced three times.
+  const store = openStore(":memory:");
+  const now = 1_735_000_000_000;
+
+  const first = store.claimIncidentThread("fp-1", "C123", "1735.0001", now);
+  assert.equal(first.thread_ts, "1735.0001");
+
+  // The postmortem session arrives later and must land in the same thread.
+  const second = store.claimIncidentThread("fp-1", "C123", "1735.9999", now + 60_000);
+  assert.equal(second.thread_ts, "1735.0001", "a later session must not claim a new thread");
+  assert.equal(store.incidentThread("fp-1")?.thread_ts, "1735.0001");
+});
+
+test("a different incident gets its own thread", () => {
+  const store = openStore(":memory:");
+  const now = 1_735_000_000_000;
+  store.claimIncidentThread("fp-1", "C123", "1735.0001", now);
+  store.claimIncidentThread("fp-2", "C123", "1735.0002", now);
+  assert.equal(store.incidentThread("fp-1")?.thread_ts, "1735.0001");
+  assert.equal(store.incidentThread("fp-2")?.thread_ts, "1735.0002");
+});
+
+test("an incident with no thread yet reports none", () => {
+  const store = openStore(":memory:");
+  assert.equal(store.incidentThread("never-seen"), undefined);
+});
+
+test("a thread is released once the incident is written up, so a recurrence starts fresh", () => {
+  // A Grafana fingerprint is stable for the life of the rule. Without release,
+  // the same alert firing next month would append to this month's thread.
+  const store = openStore(":memory:");
+  const now = 1_735_000_000_000;
+  store.claimIncidentThread("fp-1", "C123", "1735.0001", now);
+  store.releaseIncidentThread("fp-1");
+  assert.equal(store.incidentThread("fp-1"), undefined);
+
+  const later = store.claimIncidentThread("fp-1", "C123", "1799.0001", now + 86_400_000);
+  assert.equal(later.thread_ts, "1799.0001", "a later occurrence opens its own thread");
+});

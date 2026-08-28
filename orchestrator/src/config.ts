@@ -25,6 +25,13 @@ const schema = z.object({
   TRUEFORGE_TOKEN: optional(z.string()),
   TRUEFORGE_AGENT_NAME: z.string().default("sre-oncall"),
 
+  /**
+   * `owner/repo` that ArgoCD deploys from, so the agent knows where to open a
+   * revert pull request. Operator-configured, which is why it may be framed
+   * into a prompt: unlike an alert label, nobody but the operator can write it.
+   */
+  GITHUB_REPO: optional(z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'expected "owner/repo"')),
+
   /** Bearer the Grafana/Alertmanager webhook contact point must present. */
   GRAFANA_WEBHOOK_BEARER: z.string().min(16),
   /** Bearer the Vercel chatbox must present on /chat/*. */

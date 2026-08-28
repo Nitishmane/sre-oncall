@@ -41,8 +41,44 @@ export const mcpServers: McpDefinition[] = [
     attachment: {
       name: "grafana",
       enableTools: ["@all"],
-      // Silences and annotations change what other humans see. Gate them.
-      requireApprovalForTools: ["@write", "@destructive"],
+      // Gated by name rather than by `@write`, because this server bundles
+      // reads and writes into single tools: `alerting_manage_rules` is how you
+      // *read* a rule (`operation: "list"`) as well as how you delete one, so
+      // `@write` stopped the agent on the very first step of every
+      // investigation — it could not look at the alert that woke it.
+      //
+      // The trade-off is explicit: rule reads are ungated, so the operating
+      // rules forbid mutating alert rules in words rather than in policy.
+      // Everything that changes what other humans see, or that can reach
+      // arbitrary Grafana endpoints, stays gated.
+      // `grafana_api_request` reaches ANY Grafana endpoint, so it cannot be
+      // ungated — and gating it blocked a postmortem that only wanted to GET
+      // an alert rule. Removing it is the way out: everything the agent needs
+      // is available through a specific tool that is gated on its own merits,
+      // and a catch-all that can do anything is impossible to gate sensibly.
+      disableTools: ["grafana_api_request"],
+      requireApprovalForTools: [
+        "alerting_manage_routing",
+        "create_annotation",
+        "create_datasource",
+        "create_folder",
+        "create_incident",
+        "add_activity_to_incident",
+        "create_snapshot",
+        "delete_snapshot",
+        "install_plugin",
+        "update_dashboard",
+        "create_dashboard",
+        "delete_dashboard",
+        "delete_datasource",
+        "update_datasource",
+        // Deliberately NOT "@destructive": that group classifies
+        // `alerting_manage_rules` by what it *can* do, so it re-gated the
+        // read that every investigation begins with. Gating by name costs a
+        // list to maintain and buys an agent that can actually investigate.
+        // A name this server does not expose is inert here, so the list errs
+        // long on purpose.
+      ],
       // Verified against a live mcp/grafana server: these are the exact tool
       // names it exposes. A preload entry that does not match a real tool is
       // silently ignored, which is worse than an error.
@@ -111,9 +147,45 @@ export const mcpServers: McpDefinition[] = [
     },
     attachment: {
       name: "github",
-      enableTools: ["@all"],
-      // Opening a PR is fine unattended; merging one is not.
-      requireApprovalForTools: ["@write", "@destructive"],
+      // Not `@all`: this server exposes 44 tools, and their definitions are
+      // resent on every request in the turn. Against a 200k tokens-per-minute
+      // ceiling that is what pushed investigations into 429s. These are the
+      // ones the revert workflow actually uses — names verified against a live
+      // `tools/list`.
+      enableTools: [
+        "list_commits",
+        "get_commit",
+        "get_file_contents",
+        "list_branches",
+        "create_branch",
+        "create_or_update_file",
+        "create_pull_request",
+        "list_pull_requests",
+        "pull_request_read",
+        "update_pull_request",
+        "merge_pull_request",
+      ],
+      // Opening a PR is the *proposal*, and it changes nothing that is running:
+      // the pull request is what a human reviews, so producing one must not
+      // itself need approval. `@write` covered branch/file/PR creation and so
+      // stopped the agent before it could put anything in front of anyone.
+      // Merging is the act that reaches production, and a human does that in
+      // GitHub — the review is the gate.
+      // Named, not `@destructive`: that group already caught a *search* on
+      // Notion and a rule *read* on Grafana, so it cannot be trusted not to
+      // catch branch and file creation here — the two calls that produce the
+      // proposal a human is supposed to review.
+      requireApprovalForTools: ["merge_pull_request", "delete_file"],
+      // The revert PR is where every incident ends up, so pay the tool-schema
+      // cost once up front rather than mid-incident. Names verified against a
+      // live `tools/list`; one the server does not expose is silently dropped.
+      preloadTools: [
+        "list_commits",
+        "get_file_contents",
+        "create_branch",
+        "create_or_update_file",
+        "create_pull_request",
+      ],
     },
     requiresEnv: ["GITHUB_TOKEN"],
   },
@@ -128,7 +200,12 @@ export const mcpServers: McpDefinition[] = [
     attachment: {
       name: "notion",
       enableTools: ["@all"],
-      requireApprovalForTools: ["@destructive"],
+      // `@destructive` caught `API-post-search` — Notion's REST naming makes a
+      // *search* look like a mutation, and the group classifies on that shape.
+      // Every postmortem session stalled on a gate before it could find the
+      // database to write to. Writing a postmortem page is this agent's job,
+      // not a change to a live system, so only deletion is gated.
+      requireApprovalForTools: ["API-delete-a-block"],
       // Same caveat as ArgoCD: these are the names the server actually reports.
       // The `API-` prefix is Notion's own, not a convention of ours.
       preloadTools: ["API-post-search", "API-post-page", "API-patch-page"],
@@ -191,11 +268,12 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  *
  *   SRE_ONCALL_MODEL=openai/gpt-5-6-sol      OPENAI_API_KEY=...
  *   SRE_ONCALL_MODEL=anthropic/claude-opus-5 ANTHROPIC_API_KEY=...
+ *   SRE_ONCALL_MODEL=google-gemini/gemini-3-6-flash GOOGLE_GEMINI_API_KEY=...
  *
  * Run `npm run provision -- --list-models` to see what this harness offers.
  */
 export function primaryModel(): string {
-  return env("SRE_ONCALL_MODEL") || "anthropic/claude-opus-5";
+  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-luna";
 }
 
 /**
@@ -253,7 +331,30 @@ export function agentSpec(): TrueForgeApi.AgentSpec {
   };
 }
 
-/** An optional MCP server is provisioned only when its credentials are present. */
+/**
+ * Servers switched off by name, comma-separated, via `MCP_DISABLED`.
+ *
+ * Every attached server costs memory in its own container and tool-definition
+ * tokens in every single request of every turn — and this stack is
+ * oversubscribed: the containers share Docker's allocation with the kind node,
+ * and have twice starved the Kubernetes API server into `TLS handshake
+ * timeout`. Turning off what a given demo does not use is the cheapest lever
+ * on both problems.
+ */
+function disabledServers(): Set<string> {
+  return new Set(
+    (env("MCP_DISABLED") ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name !== ""),
+  );
+}
+
+/**
+ * An optional MCP server is provisioned only when its credentials are present
+ * and it has not been switched off for this run.
+ */
 export function isConfigured(server: McpDefinition): boolean {
+  if (disabledServers().has(server.manifest.name)) return false;
   return (server.requiresEnv ?? []).every((name) => (process.env[name] ?? "") !== "");
 }

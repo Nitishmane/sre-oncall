@@ -19,7 +19,7 @@ locals {
     latency    = 0.5  # 500ms at p99
     oom        = 0    # any OOMKill at all
     restarts   = 3    # restarts in 10 minutes
-    replicas   = 0    # any missing ready replica
+    replicas   = 0.5  # sustained: averaged over 5m, so a rolling update's blip does not trip it
     } : name => jsonencode({
       refId      = "threshold"
       type       = "threshold"
@@ -36,6 +36,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "HighErrorRate"
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "1m"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
@@ -74,6 +78,10 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "HighLatencyP99"
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "2m"
     labels    = { severity = "warning", service = "demo-service" }
     annotations = {
@@ -112,6 +120,10 @@ resource "grafana_rule_group" "demo_service" {
     name = "OOMKilled"
     # No `for:` — one OOM kill is already the incident.
     condition = "threshold"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "0s"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
@@ -146,6 +158,14 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "ContainerRestartsSpiking"
     condition = "threshold"
+    # Backoff stretches the interval between restarts until the rate drops
+    # below the threshold — the alert clears itself while the pod is still
+    # dying. Hold it open until the restarts have genuinely stopped.
+    keep_firing_for = "10m"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
     for       = "1m"
     labels    = { severity = "warning", service = "demo-service" }
     annotations = {
@@ -180,7 +200,18 @@ resource "grafana_rule_group" "demo_service" {
   rule {
     name      = "ReplicasUnavailable"
     condition = "threshold"
-    for       = "2m"
+    # An empty result means "no 5xx / no OOM kills / no restarts" — i.e. healthy.
+    # Left at the default (NoData) each of these fires DatasourceNoData forever.
+    no_data_state  = "OK"
+    exec_err_state = "Error"
+    for       = "1m"
+    # A crashloop is not resolved just because every pod happened to be Running
+    # at one instant. With backoff the pods spend stretches up together, and a
+    # 30s average dips under the threshold — observed resolving this alert, and
+    # writing a postmortem, while all three replicas were still CrashLoopBackOff
+    # and nothing had been fixed. `for` controls how fast it fires;
+    # `keep_firing_for` controls how sure we have to be that it is over.
+    keep_firing_for = "5m"
     labels    = { severity = "critical", service = "demo-service" }
     annotations = {
       summary = "demo-service has fewer ready replicas than desired"
@@ -197,9 +228,26 @@ resource "grafana_rule_group" "demo_service" {
       model = jsonencode({
         refId   = "query"
         instant = true
+        # Averaged over a window, not sampled instantaneously. A container
+        # killed by a failing liveness probe restarts, passes readiness, and is
+        # Ready again for a few seconds before the next kill — so the raw
+        # expression oscillates 3 -> 0 -> 3 and resets the `for` timer forever.
+        # Measured during a real crashloop it read `0 0 0 3 3 3 0 0 3 3 3`,
+        # which never sustains long enough to fire: the deployment was entirely
+        # down and this alert sat in Pending indefinitely.
+        #
+        # The window is 30s (three samples), not the 5m first tried. 5m smoothed
+        # the flapping away completely but took ~7 minutes to clear after
+        # recovery, which is longer than the whole demo video. 30s is the
+        # shortest window that still averages, and it trades some flap
+        # resistance for a resolve that happens while anyone is still watching.
         expr    = <<-PROMQL
-          kube_deployment_spec_replicas{namespace="${var.demo_namespace}", deployment="demo-service"}
-            - kube_deployment_status_replicas_ready{namespace="${var.demo_namespace}", deployment="demo-service"}
+          avg_over_time(
+            (
+              kube_deployment_spec_replicas{namespace="${var.demo_namespace}", deployment="demo-service"}
+                - kube_deployment_status_replicas_ready{namespace="${var.demo_namespace}", deployment="demo-service"}
+            )[30s:10s]
+          )
         PROMQL
       })
     }

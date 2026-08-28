@@ -44,6 +44,15 @@ export interface ApprovalRow {
   decided_at: number | null;
   decision: "approved" | "denied" | null;
   decided_by: string | null;
+  /** The agent's stated reason for the action, shown to whoever approves it. */
+  rationale: string;
+}
+
+export interface IncidentThreadRow {
+  fingerprint: string;
+  channel: string;
+  thread_ts: string;
+  created_at: number;
 }
 
 const SCHEMA = `
@@ -90,6 +99,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   tool_call_id  TEXT NOT NULL,
   tool_label    TEXT NOT NULL,
   arguments     TEXT NOT NULL,
+  rationale     TEXT NOT NULL DEFAULT '',
   channel       TEXT,
   message_ts    TEXT,
   requested_at  INTEGER NOT NULL,
@@ -98,6 +108,19 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_by    TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS approvals_call ON approvals (session_id, tool_call_id);
+
+-- One Slack thread per incident, keyed by the alert's fingerprint rather than
+-- by session. An incident produces several sessions — the healing run, a
+-- postmortem when it resolves, a re-triage if it fires again after the
+-- cooldown — and each used to open its own top-level message, so one outage
+-- scattered itself across the channel. The first session for a fingerprint
+-- posts and claims the thread; every later one joins it.
+CREATE TABLE IF NOT EXISTS incident_threads (
+  fingerprint TEXT PRIMARY KEY,
+  channel     TEXT NOT NULL,
+  thread_ts   TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
 `;
 
 export function openStore(path: string) {
@@ -105,6 +128,14 @@ export function openStore(path: string) {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
+  // `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a database
+  // written before approvals carried a rationale needs the column adding. The
+  // duplicate-column error on an up-to-date database is the expected outcome.
+  try {
+    db.exec("ALTER TABLE approvals ADD COLUMN rationale TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Already present.
+  }
 
   const upsert = db.prepare(`
     INSERT INTO incidents (fingerprint, rule_uid, rule_name, org_id, status,
@@ -133,15 +164,31 @@ export function openStore(path: string) {
       updated_at = excluded.updated_at
   `);
   const slackByThread = db.prepare("SELECT * FROM slack_sessions WHERE channel = ? AND thread_ts = ?");
+  const selectIncidentThread = db.prepare("SELECT * FROM incident_threads WHERE fingerprint = ?");
+  const dropIncidentThread = db.prepare("DELETE FROM incident_threads WHERE fingerprint = ?");
+  // First writer wins: two alerts arriving together must not each claim a thread.
+  const claimIncidentThread = db.prepare(`
+    INSERT INTO incident_threads (fingerprint, channel, thread_ts, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(fingerprint) DO NOTHING
+  `);
   const slackBySession = db.prepare("SELECT * FROM slack_sessions WHERE session_id = ?");
   const setStatusTs = db.prepare("UPDATE slack_sessions SET status_ts = ?, updated_at = ? WHERE session_id = ?");
 
   const insertApproval = db.prepare(`
     INSERT INTO approvals (session_id, thread_id, tool_call_id, tool_label, arguments,
-                           channel, message_ts, requested_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                           rationale, channel, message_ts, requested_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id, tool_call_id) DO UPDATE SET
-      channel = excluded.channel, message_ts = excluded.message_ts
+      channel = excluded.channel, message_ts = excluded.message_ts,
+      -- A re-record after the Slack post must not blank out detail the first
+      -- write resolved, but it may fill in detail the first write lacked.
+      tool_label = CASE WHEN excluded.tool_label = 'unknown tool'
+                        THEN approvals.tool_label ELSE excluded.tool_label END,
+      arguments = CASE WHEN excluded.arguments = '' THEN approvals.arguments
+                       ELSE excluded.arguments END,
+      rationale = CASE WHEN excluded.rationale = '' THEN approvals.rationale
+                       ELSE excluded.rationale END
   `);
   const decideApproval = db.prepare(`
     UPDATE approvals SET decision = ?, decided_by = ?, decided_at = ?
@@ -210,6 +257,32 @@ export function openStore(path: string) {
     slackSessionForThread(channel: string, threadTs: string): SlackSessionRow | undefined {
       return slackByThread.get(channel, threadTs) as SlackSessionRow | undefined;
     },
+    /** The Slack thread already showing this incident, if one has been opened. */
+    incidentThread(fingerprint: string): IncidentThreadRow | undefined {
+      return selectIncidentThread.get(fingerprint) as IncidentThreadRow | undefined;
+    },
+    /**
+     * Claims the thread for an incident. Returns the thread actually in force —
+     * which is the existing one if another session claimed it first, so a race
+     * ends with both sessions rendering into the same place.
+     */
+    claimIncidentThread(
+      fingerprint: string, channel: string, threadTs: string, now: number,
+    ): IncidentThreadRow {
+      claimIncidentThread.run(fingerprint, channel, threadTs, now);
+      // The row is guaranteed: either this insert landed, or an earlier one did.
+      return selectIncidentThread.get(fingerprint) as unknown as IncidentThreadRow;
+    },
+    /**
+     * Ends an incident's claim on its thread, so the next occurrence of the
+     * same alert starts a fresh one. A Grafana fingerprint is stable for the
+     * life of the rule, so without this a recurrence next month would append
+     * to a thread from today. Sessions already following the thread are
+     * unaffected — they hold it by session id.
+     */
+    releaseIncidentThread(fingerprint: string): void {
+      dropIncidentThread.run(fingerprint);
+    },
     slackSession(sessionId: string): SlackSessionRow | undefined {
       return slackBySession.get(sessionId) as SlackSessionRow | undefined;
     },
@@ -219,12 +292,12 @@ export function openStore(path: string) {
 
     recordApprovalRequest(request: {
       sessionId: string; threadId: string; toolCallId: string;
-      toolLabel: string; arguments: string;
+      toolLabel: string; arguments: string; rationale?: string;
       channel: string | null; messageTs: string | null;
     }, now: number): void {
       insertApproval.run(
         request.sessionId, request.threadId, request.toolCallId,
-        request.toolLabel, request.arguments,
+        request.toolLabel, request.arguments, request.rationale ?? "",
         request.channel, request.messageTs, now,
       );
     },

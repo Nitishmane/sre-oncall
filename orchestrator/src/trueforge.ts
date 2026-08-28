@@ -62,6 +62,48 @@ export function createHarness(config: Config, log: Logger) {
     return { sessionId, turnId: turn.data.id };
   }
 
+  /**
+   * Recovers the `model.message` that requested a tool call.
+   *
+   * `subscribeToTurn` does not replay: a follower that attaches after the model
+   * has already asked for a tool never sees the call, and an approval prompt
+   * would otherwise say "unknown tool" with no arguments. The approval event
+   * carries the id of the message that asked, so we can fetch it back.
+   */
+  async function findToolCall(
+    sessionId: string,
+    eventId: string,
+    toolCallId: string,
+  ): Promise<{ call: TrueForgeApi.ToolCall; rationale: string } | null> {
+    try {
+      const page = await client.sessions.listEvents(sessionId);
+      for await (const item of page) {
+        // The list wraps each event; older harness builds returned it bare.
+        const event = ((item as { event?: unknown }).event ?? item) as TrueForgeApi.SessionEvent;
+        if (event.type !== "model.message" || event.id !== eventId) continue;
+        const call = (event.toolCalls ?? []).find((candidate) => candidate.id === toolCallId);
+        if (call === undefined) return null;
+        const content = event.content;
+        const rationale =
+          typeof content === "string"
+            ? content
+            : (content ?? [])
+                .filter((part): part is TrueForgeApi.ChatCompletionContentPartText =>
+                  part.type === "text")
+                .map((part) => part.text)
+                .join("");
+        return { call, rationale };
+      }
+    } catch (err) {
+      log.warn("could not recover the tool call behind an approval", {
+        sessionId,
+        eventId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return null;
+  }
+
   /** Live event stream for one turn, for surfaces that render progress. */
   async function subscribeTurn(
     sessionId: string,
@@ -79,7 +121,9 @@ export function createHarness(config: Config, log: Logger) {
     }
   }
 
-  return { client, startSession, continueSession, submitApproval, subscribeTurn, health };
+  return {
+    client, startSession, continueSession, submitApproval, subscribeTurn, findToolCall, health,
+  };
 }
 
 export type Harness = ReturnType<typeof createHarness>;
