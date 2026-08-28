@@ -266,6 +266,13 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  * and which API key is read. Switching vendors is therefore a change to this one
  * value plus the matching key — no code change.
  *
+ * Rate limits are per model, and they decide this more than price does:
+ * luna and gpt-5-4-mini are on 200k tokens/minute, while terra, sol and
+ * gpt-5-5 get 500k. A healing turn resends its whole context on every request
+ * and runs 450-535k input tokens, so on a 200k bucket it 429s every time —
+ * luna is a fifth of terra's price and could not finish an investigation.
+ * Check with the `x-ratelimit-limit-tokens` response header before choosing.
+ *
  *   SRE_ONCALL_MODEL=openai/gpt-5-6-sol      OPENAI_API_KEY=...
  *   SRE_ONCALL_MODEL=anthropic/claude-opus-5 ANTHROPIC_API_KEY=...
  *   SRE_ONCALL_MODEL=google-gemini/gemini-3-6-flash GOOGLE_GEMINI_API_KEY=...
@@ -273,7 +280,7 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  * Run `npm run provision -- --list-models` to see what this harness offers.
  */
 export function primaryModel(): string {
-  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-luna";
+  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-terra";
 }
 
 /**
