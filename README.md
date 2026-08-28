@@ -128,6 +128,23 @@ npm run provision -- --list-models         # what this harness offers
 
 Verified against a live harness with both. No code changes either way.
 
+### Talking to an agent from the terminal
+
+```bash
+npm run ask -- automation-engineer "Call harness_selftest with input 'hello'"
+npm run ask -- sre-oncall "What is the demo service doing right now?"
+```
+
+Prints tool calls and results as they happen. It **stops at approval gates** and
+names what it was asked to approve, which is usually the thing you wanted to
+see; `--approve` allows the pending call and resumes. Note that the harness
+wraps MCP tools behind its own `call_tool`, so a gate would otherwise read
+"approve call_tool?" — `ask` unwraps that to the server and tool underneath.
+
+`n8n/workflows/harness-selftest.json` is a workflow built for exactly this: no
+credentials, no external calls, and it returns a timestamp that could only have
+been produced inside n8n. See `n8n/README.md`.
+
 ## Design notes
 
 **Alert text is untrusted.** Anyone who can name a Kubernetes object can write
