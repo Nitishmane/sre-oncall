@@ -325,6 +325,18 @@ export function agentSpec(): TrueForgeApi.AgentSpec {
       sandbox: { enabled: true, fileDownloads: true },
       // Incidents are long. Give the loop room, but not unbounded room.
       iterationLimit: 200,
+      // `ask_user_question` is on by default, and it stopped a postmortem to
+      // ask a human to approve its plan — in the harness UI, which nobody is
+      // watching at 3am. This agent is woken by an alert, not by a person, and
+      // its human checkpoints are deliberate and elsewhere: the Slack approval
+      // gate for live changes, the pull request review for anything in git. A
+      // question that blocks the loop is not a gate, it is a hang.
+      askUserQuestions: { enabled: false },
+      // Sub-agents default on too. One starts cold and re-reads every tool
+      // schema already paid for, and the binding constraint here is 200k tokens
+      // per minute rather than reasoning capacity — investigations have died at
+      // 535k and 618k. The prompt already says not to delegate; this enforces it.
+      dynamicSubAgents: { enabled: false },
     },
     mcpServers: configured.map((server) => server.attachment),
     skills: skills.map((skill) => ({ name: skill.name })),
