@@ -9,6 +9,11 @@ Match the failure signature first, then open exactly one runbook. If two match,
 the more specific one wins. If none match, investigate from first principles and
 say in your report that no runbook covered this — that gap is worth recording.
 
+Two of these are routers rather than destinations: `replicas-unavailable.md` and
+`latency-p99.md` both start from a symptom with several possible causes and hand
+you off once you have named one. Follow the handoff rather than trying to
+remediate from the symptom.
+
 | Signature you observed | Runbook |
 |---|---|
 | Pod restarting repeatedly; `CrashLoopBackOff`; last state `OOMKilled`; memory approaching the container limit | `runbooks/pod-crashloop-oom.md` |
@@ -16,6 +21,9 @@ say in your report that no runbook covered this — that gap is worth recording.
 | Anything that began within ~15 minutes of an ArgoCD sync | `runbooks/bad-deploy-rollback.md` |
 | Latency climbing with `connection pool`, `too many clients`, or timeout errors in logs | `runbooks/connection-pool-exhaustion.md` |
 | `FailedScheduling`, `ImagePullBackOff`, evictions — event-only failures with no metric signal | `runbooks/event-only-failures.md` |
+| `ReplicasUnavailable` — fewer Ready replicas than the deployment wants | `runbooks/replicas-unavailable.md` |
+| `HighLatencyP99` — p99 above threshold while the error rate is normal | `runbooks/latency-p99.md` |
+| The alert is firing but the service is fine; flapping; `DatasourceNoData` | `runbooks/alert-quality.md` |
 
 ## Report formats
 

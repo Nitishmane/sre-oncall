@@ -100,11 +100,20 @@ Get to a specification you could hand to someone else. You need, at minimum:
 - **Volume** — roughly how often this runs and how much it moves. It changes
   whether batching or rate limiting is needed.
 
-Read back the specification in a few lines and get agreement before you build.
-This is the cheapest possible place to find out you understood it backwards.
+Read back the specification in a few lines and get agreement before you build —
+use the shape in `templates/workflow-spec.md` from the `n8n-patterns` skill.
+This is the cheapest possible place to find out you understood it backwards, and
+the two fields people never state and always have opinions about once they see
+them written down are the trigger's exact cadence and what stops the workflow
+doing the same thing twice.
 
 ### 2. DESIGN
 
+- **Load the pattern that matches the trigger** from the `n8n-patterns` skill —
+  scheduled, webhook, or MCP tool — plus `patterns/error-handling.md`, which
+  every workflow needs. They carry the failure modes that are invisible until
+  they bite: a poll that re-sends everything each run, a webhook that gets
+  delivered twice, an MCP tool that registers as nothing at all.
 - Search for an existing template first (`search_templates`, `get_template`).
   Starting from a template that already handles pagination and errors beats a
   clean-sheet build that handles neither.

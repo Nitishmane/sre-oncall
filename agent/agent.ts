@@ -318,6 +318,15 @@ export const mcpServers: McpDefinition[] = [
 
 export const skills: TrueForgeApi.SkillManifest[] = [
   {
+    name: "n8n-patterns",
+    type: "git",
+    description:
+      "Build-patterns for n8n workflows: how to shape a scheduled, webhook or MCP-tool trigger, what makes each one idempotent, how failure should behave, and the spec format for reading a requirement back before building.",
+    url: env("SKILLS_REPO_URL") || "https://github.com/OWNER/sre-oncall",
+    ref: env("SKILLS_REPO_REF") || "main",
+    path: "skills/n8n-patterns",
+  },
+  {
     name: "sre-runbooks",
     type: "git",
     description:
@@ -459,7 +468,7 @@ export const agents: AgentDefinition[] = [
     // it cannot touch production even if a requirement asks it to, which is
     // the point: its blast radius is the workflows it writes.
     mcpServerNames: ["n8n-builder", "n8n-tools"],
-    skillNames: [],
+    skillNames: ["n8n-patterns"],
     model: automationModel,
     config: {
       // It drafts and diffs workflow JSON, which is easier in a file than in
