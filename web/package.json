@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start --port ${PORT:-3100}",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "console:passwd": "node --experimental-strip-types scripts/hash-password.ts"
   },
   "dependencies": {
     "@assistant-ui/core": "^0.2.22",

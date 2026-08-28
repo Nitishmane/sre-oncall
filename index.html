@@ -282,8 +282,8 @@
     <a class="btn primary" href="/console">▶ Sign in to the SRE console</a>
     <a class="btn ghost" href="#loops">see the healing loops ↓</a>
   </div>
-  <p class="cta-note">GitHub sign-in · allowlisted operators only — the console can start harness
-  sessions, so it sits behind OAuth. This page is the public, read-only explainer.</p>
+  <p class="cta-note">Sign-in required · issued accounts only — the console can start harness
+  sessions, so it sits behind a password. This page is the public, read-only explainer.</p>
 </header>
 
 <section id="architecture">
@@ -440,7 +440,7 @@
       <tr><td>TrueForge harness</td><td>agent runtime: sessions, MCP routing, skills, sandbox, approval gates, SSE streaming <span class="sub">(SQLite state)</span></td><td>local host</td></tr>
       <tr><td>Runbook skills</td><td>git-backed SKILL.md packs: crashloop/OOM, error-rate, rollback, triage-report + postmortem + handoff templates</td><td>git repo</td></tr>
       <tr><td>Slack bot</td><td>Socket Mode: @mention queries, triage threads, Block Kit approval buttons</td><td>local host</td></tr>
-      <tr><td>Chatbox</td><td>Next.js + TrueForge React SDK — query the agent, watch live investigations <span class="sub">(GitHub-OAuth allowlist; harness calls proxied server-side)</span></td><td>Vercel</td></tr>
+      <tr><td>Chatbox</td><td>Next.js + TrueForge React SDK — query the agent, watch live investigations <span class="sub">(username/password accounts; harness calls proxied server-side)</span></td><td>Vercel</td></tr>
       <tr><td>This page</td><td>static architecture explainer &amp; project landing page</td><td>Vercel</td></tr>
       <tr><td>n8n automation hub</td><td>self-hosted n8n + builder MCP: agent turns plain-English requests into live workflows <span class="sub">(“every morning, post an overnight-incident summary”)</span>; standing tools for notify / ticket / escalate</td><td>local host</td></tr>
       <tr><td>Demo environment</td><td>kind cluster + ArgoCD + fault-injectable service + Terraform config</td><td>local host</td></tr>
@@ -451,7 +451,7 @@
 <section id="safety">
   <h2>Safety model</h2>
   <div class="safety">
-    <div class="card"><b>Authenticated chatbox</b>The Vercel chat UI can start harness sessions, so it sits behind GitHub OAuth with a username allowlist; harness calls are proxied server-side — the browser never sees the tunnel URL or token.</div>
+    <div class="card"><b>Authenticated chatbox</b>The Vercel chat UI can start harness sessions, so it sits behind a sign-in whose account list fails closed — passwords stored only as scrypt verifiers. Harness calls are proxied server-side; the browser never sees the tunnel URL or token.</div>
     <div class="card"><b>Human approval gates</b>Every write — Grafana silences/annotations, k8s mutations, ArgoCD rollbacks, PR merges, n8n workflow activation — pauses the session until a human approves.</div>
     <div class="card"><b>Authenticated ingress only</b>Grafana webhook posts carry a bearer token (optional HMAC); the chat bridge requires its own bearer. Raw TrueForge is never exposed to the internet.</div>
     <div class="card"><b>Injection trust boundary</b>Only the alert rule UID and fingerprint enter the prompt. Alert labels, annotations, and author-controlled text never do.</div>
@@ -468,7 +468,7 @@
       <header>▲ Vercel</header>
       <ul>
         <li>index.html <small>this page — static, public, can't invoke anything</small></li>
-        <li>Chatbox (Next.js) <small>GitHub-OAuth allowlist · embeds the TrueForge UI SDK · server-side proxy to the harness</small></li>
+        <li>Chatbox (Next.js) <small>username/password accounts · embeds the TrueForge UI SDK · server-side proxy to the harness</small></li>
       </ul>
     </div>
     <div class="tier localhost">
@@ -514,8 +514,7 @@ vercel --prod
 
 <span class="c"># later: the chatbox app — server-side env vars only (never NEXT_PUBLIC_)</span>
 <span class="g">AUTH_SECRET</span>=…                <span class="c"># Auth.js sessions</span>
-<span class="g">AUTH_GITHUB_ID</span>=… <span class="g">AUTH_GITHUB_SECRET</span>=…
-<span class="g">CHAT_ALLOWLIST</span>=alice,bob     <span class="c"># GitHub usernames allowed to chat</span>
+<span class="g">CONSOLE_USERS</span>=alice:scrypt$… <span class="c"># accounts allowed to chat; empty means nobody</span>
 <span class="g">TRUEFORGE_API_URL</span>=https://&lt;your-static-domain&gt;.ngrok-free.app
 <span class="g">TRUEFORGE_BRIDGE_TOKEN</span>=…     <span class="c"># bearer the orchestrator /chat proxy requires</span>
 </pre>

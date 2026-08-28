@@ -1,31 +1,103 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isAllowed, parseAllowlist } from "../lib/allowlist.ts";
+import {
+  hashPassword,
+  isKnownUser,
+  parseConsoleUsers,
+  verifyConsoleUser,
+} from "../lib/credentials.ts";
 import { forwardableHeaders, safeUpstreamPath, upstreamUrl } from "../lib/proxy.ts";
 
-test("the allowlist fails closed when unset or empty", () => {
-  assert.equal(isAllowed("octocat", parseAllowlist(undefined)), false);
-  assert.equal(isAllowed("octocat", parseAllowlist("")), false);
-  assert.equal(isAllowed("octocat", parseAllowlist("  , ,, ")), false);
+// One derivation, reused: scrypt is deliberately slow, and every test below
+// that needs a real account can share the same verifier.
+const PASSWORD = "correct horse battery staple";
+const VERIFIER = await hashPassword(PASSWORD);
+const USERS = `reviewer:${VERIFIER}`;
+
+test("the account list fails closed when unset or empty", () => {
+  assert.equal(parseConsoleUsers(undefined).size, 0);
+  assert.equal(parseConsoleUsers("").size, 0);
+  assert.equal(parseConsoleUsers("  , ,, ").size, 0);
+  assert.equal(isKnownUser("reviewer", parseConsoleUsers(undefined)), false);
 });
 
-test("allowlist matching is case-insensitive and trimmed, like GitHub usernames", () => {
-  const list = parseAllowlist(" OctoCat , hubot ");
-  assert.equal(isAllowed("octocat", list), true);
-  assert.equal(isAllowed("OCTOCAT", list), true);
-  assert.equal(isAllowed(" hubot ", list), true);
-  assert.equal(isAllowed("mona", list), false);
+test("an unset account list admits nobody, even with the right password", async () => {
+  assert.equal(await verifyConsoleUser("reviewer", PASSWORD, parseConsoleUsers("")), false);
 });
 
-test("a non-string identity is rejected rather than coerced", () => {
-  const list = parseAllowlist("octocat");
-  for (const value of [undefined, null, 42, {}, ["octocat"], true]) {
-    assert.equal(isAllowed(value, list), false, `${String(value)} must not pass`);
+test("a correct username and password is accepted", async () => {
+  assert.equal(await verifyConsoleUser("reviewer", PASSWORD, parseConsoleUsers(USERS)), true);
+});
+
+test("a wrong password is rejected for a real account", async () => {
+  const users = parseConsoleUsers(USERS);
+  assert.equal(await verifyConsoleUser("reviewer", "wrong", users), false);
+  assert.equal(await verifyConsoleUser("reviewer", `${PASSWORD} `, users), false);
+  assert.equal(await verifyConsoleUser("reviewer", PASSWORD.toUpperCase(), users), false);
+});
+
+test("usernames are case-insensitive and trimmed; passwords are not", async () => {
+  const users = parseConsoleUsers(` REVIEWER:${VERIFIER} `);
+  assert.equal(await verifyConsoleUser("reviewer", PASSWORD, users), true);
+  assert.equal(await verifyConsoleUser("  Reviewer  ", PASSWORD, users), true);
+  assert.equal(isKnownUser("ReViEwEr", users), true);
+});
+
+test("an unknown username is rejected whatever the password", async () => {
+  const users = parseConsoleUsers(USERS);
+  assert.equal(await verifyConsoleUser("mallory", PASSWORD, users), false);
+  assert.equal(isKnownUser("mallory", users), false);
+});
+
+test("an empty or non-string password never authenticates", async () => {
+  const users = parseConsoleUsers(USERS);
+  for (const value of [undefined, null, "", 42, {}, [PASSWORD], true]) {
+    assert.equal(
+      await verifyConsoleUser("reviewer", value, users),
+      false,
+      `${String(value)} must not pass`,
+    );
   }
 });
 
-test("a username that is only whitespace never matches", () => {
-  assert.equal(isAllowed("   ", parseAllowlist("octocat, ")), false);
+test("a non-string identity is rejected rather than coerced", async () => {
+  const users = parseConsoleUsers(USERS);
+  for (const value of [undefined, null, 42, {}, ["reviewer"], true, "   "]) {
+    assert.equal(isKnownUser(value, users), false, `${String(value)} must not be known`);
+    assert.equal(await verifyConsoleUser(value, PASSWORD, users), false);
+  }
+});
+
+test("several accounts can share the one variable", async () => {
+  const other = await hashPassword("second account password");
+  const users = parseConsoleUsers(`reviewer:${VERIFIER}, judge:${other}`);
+  assert.equal(users.size, 2);
+  assert.equal(await verifyConsoleUser("judge", "second account password", users), true);
+  assert.equal(await verifyConsoleUser("judge", PASSWORD, users), false);
+});
+
+test("a malformed entry is dropped without taking the other accounts down", () => {
+  const users = parseConsoleUsers(`broken, :${VERIFIER}, nohash:, bad:sha1$x$y, reviewer:${VERIFIER}`);
+  assert.deepEqual([...users.keys()], ["reviewer"]);
+});
+
+test("a verifier demanding absurd memory is refused rather than run", () => {
+  // 128 * N * r would be gigabytes; parsing it must not hand that to scrypt.
+  assert.equal(parseConsoleUsers("bomb:scrypt$4194304$8$1$c2FsdA==$aGFzaA==").size, 0);
+  assert.equal(parseConsoleUsers("bomb:scrypt$0$8$1$c2FsdA==$aGFzaA==").size, 0);
+  assert.equal(parseConsoleUsers("bomb:scrypt$abc$8$1$c2FsdA==$aGFzaA==").size, 0);
+});
+
+test("a username cannot smuggle a colon to shift the verifier boundary", () => {
+  // Splitting on the last colon instead of the first would make this parse.
+  assert.equal(parseConsoleUsers(`a:b:${VERIFIER}`).size, 0);
+});
+
+test("each generated verifier is salted, so equal passwords do not collide", async () => {
+  const [first, second] = await Promise.all([hashPassword("same"), hashPassword("same")]);
+  assert.notEqual(first, second);
+  assert.equal(await verifyConsoleUser("u", "same", parseConsoleUsers(`u:${first}`)), true);
+  assert.equal(await verifyConsoleUser("u", "same", parseConsoleUsers(`u:${second}`)), true);
 });
 
 test("path traversal cannot escape the upstream prefix", () => {

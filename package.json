@@ -22,6 +22,7 @@
     "demo:fault": "./demo-env/scripts/inject-fault.sh",
     "demo:reset": "./demo-env/scripts/heal-reset.sh",
     "dev:web": "npm run dev --workspace @sre-oncall/web",
+    "console:passwd": "npm run console:passwd --workspace @sre-oncall/web --",
     "demo:release-bad": "./demo-env/scripts/release-bad.sh",
     "demo:release-revert": "./demo-env/scripts/release-bad.sh --revert",
     "model-proxy": "node --experimental-strip-types --env-file-if-exists=.env agent/scripts/model-proxy.ts"

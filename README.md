@@ -55,7 +55,7 @@ true on recording day.
 | `skills/sre-runbooks/` | Runbooks per failure signature, plus the triage-report, postmortem and handoff formats. Loaded by the harness as a git-backed skill. |
 | `mcp/` | Local stdio→HTTP bridges for the MCP servers the harness can only reach over a URL. |
 | `demo-env/` | kind cluster, the fault-injectable demo service, the ArgoCD application, the Terraform-managed alerting config, and the inject/reset scripts. |
-| `web/` | The console: Next.js on Vercel, GitHub-OAuth allowlist, and a server-side proxy so the browser never sees the tunnel or its token. |
+| `web/` | The console: Next.js on Vercel, username/password accounts, and a server-side proxy so the browser never sees the tunnel or its token. |
 | `index.html` | The public architecture explainer. Static, and deliberately unable to invoke anything. |
 
 ## Running it
@@ -148,7 +148,7 @@ and an hourly limit bounds the worst case. Flap-prone rules are held briefly and
 dropped silently if they self-resolve.
 
 **The console is not public.** It can start harness sessions, so it sits behind
-GitHub OAuth plus an allowlist that fails closed, and reaches the harness only
+a sign-in whose account list fails closed, and reaches the harness only
 through a server-side proxy holding a bearer the browser never sees. The tunnel
 terminates at the orchestrator, never at the harness. See `web/README.md`.
 

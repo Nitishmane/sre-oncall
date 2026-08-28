@@ -245,7 +245,7 @@ middleware, applied twice with two different secrets:
   contact point presents, local-to-local, no tunnel involved.
 - `TRUEFORGE_BRIDGE_TOKEN` gates `/chat/*`, `/incidents`, and `/approvals` —
   this is the token the Vercel console's server-side route handler presents,
-  after it has already checked the browser's GitHub OAuth session.
+  after it has already checked the browser's console session.
 
 They are unrelated values. A webhook bearer leaked from a Grafana config (a
 lower-value secret, local-to-local) cannot be replayed against the chat
@@ -263,7 +263,7 @@ composed upstream URL is re-checked against the configured origin and prefix
 base is refused; and of the incoming request's headers, only `accept`,
 `content-type`, and `accept-language` are forwarded — never the session
 cookie, and never a client-supplied `authorization` header, which would
-otherwise let a browser simply state its own bearer and skip the OAuth check
+otherwise let a browser simply state its own bearer and skip the sign-in
 entirely. This file has its own test suite (`web/test/security.test.ts`)
 separate from the rest of the app specifically because a bug in it leaks a
 credential with full harness access, i.e. the ability to start a session that
@@ -352,8 +352,9 @@ identifiers rather than alert text.
 audit log's atomic-claim behavior, the alert-to-session pipeline including
 the admission policy, the trust-boundary payload normalization, the HTTP
 server's route wiring, and the Slack event translator including the
-turn-pause case above) and 10 in `web/test/security.test.ts` (the allowlist's
-fail-closed behavior and the proxy's path/header handling). These are unit
+turn-pause case above) and 19 in `web/test/security.test.ts` (the account
+list's fail-closed behavior, scrypt password verification, and the proxy's
+path/header handling). These are unit
 and integration tests against in-memory fakes (`:memory:` SQLite, fake
 harness clients); they do not exercise a live TrueForge harness, a live
 cluster, or a live Slack workspace, though individual pieces of the system
@@ -383,8 +384,8 @@ finished than it is:
   `N8N_MCP_AUTH_TOKEN`, `N8N_TOOLS_BEARER`) that aren't set up yet.
 - **The console has not been deployed to Vercel.** It runs locally
   (`npm run dev:web`, port 3100) with its auth-wall behavior verified there;
-  the GitHub OAuth app, `CHAT_ALLOWLIST`, and the ngrok/Cloudflare tunnel it
-  needs in production are not yet configured.
+  `CONSOLE_USERS` and the ngrok/Cloudflare tunnel it needs in production are
+  not yet configured.
 - **No GitHub repository is confirmed public with Qodo installed from this
   checkout.** This worktree has no `git remote` configured, so neither fact
   can be verified from the code alone — see `docs/submission-checklist.md`.

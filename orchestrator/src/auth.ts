@@ -12,7 +12,7 @@ function safeEqual(a: string, b: string): boolean {
 /**
  * Bearer-token gate. Used twice with different secrets: on `/webhook/*` (the
  * Grafana contact point) and on `/chat/*` (the Vercel chatbox, which has
- * already checked the user's GitHub OAuth session). Nothing in this service is
+ * already checked the user's console session). Nothing in this service is
  * reachable without one of them.
  */
 export function requireBearer(expected: string): RequestHandler {
