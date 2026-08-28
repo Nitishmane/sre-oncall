@@ -244,8 +244,24 @@ export const mcpServers: McpDefinition[] = [
     attachment: {
       name: "n8n-builder",
       enableTools: ["@all"],
-      // Activating a workflow makes it fire at real people. Always gated.
+      // This server has two halves, and which half you get depends on whether
+      // the container was given N8N_API_KEY. Without it you get the seven
+      // documentation tools below and nothing else — the agent can design and
+      // validate a workflow but cannot put it into n8n.
+      //
+      // Gated wholesale on purpose, for now. Creating an *inactive* workflow
+      // changes nothing that runs, so the narrower and better gate is
+      // activation + deletion only — but the `n8n_*` names are not observable
+      // until the API key is wired, and this repo has been bitten before by
+      // guessing tool names from documentation. An explicit-name gate that
+      // misses fails *open*, which is the wrong direction to be wrong in.
+      // Once `mcp/probe-tools.sh 8105 "$N8N_MCP_AUTH_TOKEN"` reports the real
+      // `n8n_*` names, narrow this to activation/trigger/delete.
       requireApprovalForTools: ["@write", "@destructive"],
+      // The documentation half, verified against the live server on
+      // 2026-08-28. A preload name the server does not expose is silently
+      // dropped, so every name here came from that probe.
+      preloadTools: ["search_nodes", "get_node", "validate_workflow"],
     },
     requiresEnv: ["N8N_MCP_AUTH_TOKEN"],
   },
@@ -312,6 +328,17 @@ export function summaryModel(): string {
   return env("SRE_ONCALL_SUMMARY_MODEL") || primaryModel();
 }
 
+/**
+ * Model for the automation engineer. Defaults to the primary model so that
+ * switching vendor stays a one-value change, but it is broken out because the
+ * two agents have genuinely different needs: workflow building is a short,
+ * interactive conversation, not a 500k-token investigation, so it is the one
+ * place a cheaper model is worth trying first.
+ */
+export function automationModel(): string {
+  return env("AUTOMATION_ENGINEER_MODEL") || primaryModel();
+}
+
 /** Provider half of the model FQN — e.g. `openai`, `anthropic`, `google-gemini`. */
 export function providerOf(modelFqn: string): string {
   const [provider] = modelFqn.split("/");
@@ -333,19 +360,46 @@ export function apiKeyEnvFor(provider: string): string {
 
 /** Every model this project needs configured on the harness. */
 export function modelNames(): string[] {
-  return [...new Set([primaryModel(), summaryModel()])];
+  return [...new Set([primaryModel(), summaryModel(), automationModel()])];
 }
 
-export function agentSpec(): TrueForgeApi.AgentSpec {
-  const instructions = readFileSync(join(here, "prompts", "base.md"), "utf8");
-  const configured = mcpServers.filter(isConfigured);
+/**
+ * One agent this project provisions onto the harness.
+ *
+ * Two agents rather than one because the two jobs pull the config in opposite
+ * directions. SRE-Oncall is woken by an alert with nobody watching, so a
+ * blocking question is a hang; Automation-Engineer exists to be talked to, so a
+ * blocking question is the entire point. They also want disjoint tools: giving
+ * the on-call agent a workflow builder is tool-schema tax on every incident
+ * request, and giving the automation agent a cluster is authority it has no use
+ * for.
+ */
+export interface AgentDefinition {
+  /** Agent name on the harness. Must match what the caller asks for. */
+  name: string;
+  /** File under `agent/prompts/`. */
+  promptFile: string;
+  /** Which of `mcpServers` to attach, by manifest name. */
+  mcpServerNames: string[];
+  /** Which of `skills` to attach, by name. */
+  skillNames: string[];
+  model: () => string;
+  config: NonNullable<TrueForgeApi.AgentSpec["config"]>;
+}
 
-  return {
-    model: {
-      name: primaryModel(),
-      params: { temperature: 0 },
-    },
-    instructions,
+export const agents: AgentDefinition[] = [
+  {
+    name: env("TRUEFORGE_AGENT_NAME") || "sre-oncall",
+    promptFile: "base.md",
+    // No n8n. The on-call agent investigates and proposes fixes; building
+    // automations is a different job with a different agent, and every attached
+    // server costs tool-definition tokens in every request of every turn — the
+    // constraint that has already killed investigations at 535k and 618k.
+    mcpServerNames: [
+      "grafana", "kubernetes", "argocd", "terraform", "github", "raw-file", "notion",
+    ],
+    skillNames: ["sre-runbooks"],
+    model: primaryModel,
     config: {
       // Skills need a sandbox; the agent also drafts postmortems and scratch
       // analysis scripts there.
@@ -365,8 +419,54 @@ export function agentSpec(): TrueForgeApi.AgentSpec {
       // 535k and 618k. The prompt already says not to delegate; this enforces it.
       dynamicSubAgents: { enabled: false },
     },
-    mcpServers: configured.map((server) => server.attachment),
-    skills: skills.map((skill) => ({ name: skill.name })),
+  },
+  {
+    name: env("TRUEFORGE_AUTOMATION_AGENT_NAME") || "automation-engineer",
+    promptFile: "automation-engineer.md",
+    // Only n8n. This agent has no cluster, no deploy repo and no alerting —
+    // it cannot touch production even if a requirement asks it to, which is
+    // the point: its blast radius is the workflows it writes.
+    mcpServerNames: ["n8n-builder", "n8n-tools"],
+    skillNames: [],
+    model: automationModel,
+    config: {
+      // It drafts and diffs workflow JSON, which is easier in a file than in
+      // a message.
+      sandbox: { enabled: true, fileDownloads: true },
+      // A build conversation is far shorter than an incident.
+      iterationLimit: 100,
+      // The exact inverse of SRE-Oncall, and for the same reason read
+      // backwards: this agent is started BY a person who is waiting for it.
+      // Its whole job is turning a vague requirement into a specific workflow,
+      // and that is not possible without asking which Slack channel, which
+      // schedule, which credential. Guessing silently and building the wrong
+      // automation is the failure mode to design against here.
+      askUserQuestions: { enabled: true },
+      dynamicSubAgents: { enabled: false },
+    },
+  },
+];
+
+/** Look an agent up by name, for callers that provision or address just one. */
+export function agentByName(name: string): AgentDefinition | undefined {
+  return agents.find((agent) => agent.name === name);
+}
+
+export function agentSpec(def: AgentDefinition): TrueForgeApi.AgentSpec {
+  const instructions = readFileSync(join(here, "prompts", def.promptFile), "utf8");
+  const attached = mcpServers.filter(
+    (server) => def.mcpServerNames.includes(server.manifest.name) && isConfigured(server),
+  );
+
+  return {
+    model: {
+      name: def.model(),
+      params: { temperature: 0 },
+    },
+    instructions,
+    config: def.config,
+    mcpServers: attached.map((server) => server.attachment),
+    skills: def.skillNames.map((name) => ({ name })),
   };
 }
 

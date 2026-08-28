@@ -1,20 +1,18 @@
 /**
- * Provisions the SRE-Oncall agent into a running TrueForge harness:
- * MCP servers → skills → the agent itself. Idempotent — run it as often as you
- * like, including after editing `agent/prompts/base.md`.
+ * Provisions this project's agents into a running TrueForge harness:
+ * MCP servers → skills → the agents themselves. Idempotent — run it as often as
+ * you like, including after editing a prompt under `agent/prompts/`.
  *
  *   node --experimental-strip-types --env-file-if-exists=.env agent/scripts/provision.ts
  */
 import { TrueForge, type TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import {
-  agentSpec, apiKeyEnvFor, isConfigured, mcpServers, modelNames, primaryModel,
+  agents, agentSpec, apiKeyEnvFor, isConfigured, mcpServers, modelNames, primaryModel,
   providerOf, skills,
 } from "../agent.ts";
 
 const baseUrl = process.env["TRUEFORGE_API_URL"] ?? "http://localhost:8790";
 const token = process.env["TRUEFORGE_TOKEN"];
-const agentName = process.env["TRUEFORGE_AGENT_NAME"] ?? "sre-oncall";
-
 const client = new TrueForge({ baseUrl, ...(token ? { token } : {}) });
 
 function ok(message: string) { console.log(`  ✓ ${message}`); }
@@ -99,7 +97,12 @@ async function provisionMcpServers(): Promise<void> {
   const disabledByEnv = new Set(
     (process.env["MCP_DISABLED"] ?? "").split(",").map((n) => n.trim()).filter(Boolean),
   );
+  const attachedByAnyAgent = new Set(agents.flatMap((agent) => agent.mcpServerNames));
   for (const server of mcpServers) {
+    if (!attachedByAnyAgent.has(server.manifest.name)) {
+      skip(`${server.manifest.name} (no agent attaches it)`);
+      continue;
+    }
     if (!isConfigured(server)) {
       const reason = disabledByEnv.has(server.manifest.name)
         ? "disabled via MCP_DISABLED"
@@ -120,18 +123,24 @@ async function provisionSkills(): Promise<void> {
   }
 }
 
-async function provisionAgent(): Promise<void> {
-  console.log("Agent");
-  const manifest = agentSpec();
+async function provisionAgents(): Promise<void> {
+  console.log("Agents");
+  // One list call for all of them: the harness is being asked the same question
+  // once per agent otherwise, and this runs on every prompt edit.
   const existing = await client.agents.list();
-  const match = existing.data.find((agent) => agent.name === agentName);
 
-  if (match) {
-    await client.agents.update(match.id, { manifest });
-    ok(`${agentName} updated (${manifest.mcpServers?.length ?? 0} MCP servers attached)`);
-  } else {
-    await client.agents.create({ manifest, name: agentName });
-    ok(`${agentName} created (${manifest.mcpServers?.length ?? 0} MCP servers attached)`);
+  for (const def of agents) {
+    const manifest = agentSpec(def);
+    const attached = manifest.mcpServers?.map((server) => server.name).join(", ") || "none";
+    const match = existing.data.find((agent) => agent.name === def.name);
+
+    if (match) {
+      await client.agents.update(match.id, { manifest });
+      ok(`${def.name} updated  [${def.model()}]  mcp: ${attached}`);
+    } else {
+      await client.agents.create({ manifest, name: def.name });
+      ok(`${def.name} created  [${def.model()}]  mcp: ${attached}`);
+    }
   }
 }
 
@@ -144,7 +153,7 @@ async function main(): Promise<void> {
   await provisionModelProvider();
   await provisionMcpServers();
   await provisionSkills();
-  await provisionAgent();
+  await provisionAgents();
   console.log("\nDone. Start an incident with: npm run demo:fault errors");
 }
 
