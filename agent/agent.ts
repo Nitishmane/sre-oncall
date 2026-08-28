@@ -191,6 +191,26 @@ export const mcpServers: McpDefinition[] = [
   },
   {
     manifest: {
+      name: "raw-file",
+      type: "remote",
+      description:
+        "Read a file from the deploy repository at an exact git ref, returned verbatim as text. " +
+        "This is how you obtain the previous good contents of a manifest before opening a revert " +
+        "pull request: GitHub's get_file_contents cannot return file bytes here.",
+      url: env("MCP_RAW_FILE_URL") || "http://127.0.0.1:8106/mcp",
+    },
+    attachment: {
+      name: "raw-file",
+      enableTools: ["@all"],
+      // Reading a file at a ref changes nothing, and gating it would recreate
+      // the deadlock this server exists to break.
+      requireApprovalForTools: [],
+      preloadTools: ["read_repo_file"],
+    },
+    requiresEnv: ["GITHUB_REPO"],
+  },
+  {
+    manifest: {
       name: "notion",
       type: "remote",
       description:
@@ -266,6 +286,13 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  * and which API key is read. Switching vendors is therefore a change to this one
  * value plus the matching key — no code change.
  *
+ * Rate limits are per model, and they decide this more than price does:
+ * luna and gpt-5-4-mini are on 200k tokens/minute, while terra, sol and
+ * gpt-5-5 get 500k. A healing turn resends its whole context on every request
+ * and runs 450-535k input tokens, so on a 200k bucket it 429s every time —
+ * luna is a fifth of terra's price and could not finish an investigation.
+ * Check with the `x-ratelimit-limit-tokens` response header before choosing.
+ *
  *   SRE_ONCALL_MODEL=openai/gpt-5-6-sol      OPENAI_API_KEY=...
  *   SRE_ONCALL_MODEL=anthropic/claude-opus-5 ANTHROPIC_API_KEY=...
  *   SRE_ONCALL_MODEL=google-gemini/gemini-3-6-flash GOOGLE_GEMINI_API_KEY=...
@@ -273,7 +300,7 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  * Run `npm run provision -- --list-models` to see what this harness offers.
  */
 export function primaryModel(): string {
-  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-luna";
+  return env("SRE_ONCALL_MODEL") || "openai/gpt-5-6-terra";
 }
 
 /**
@@ -325,6 +352,18 @@ export function agentSpec(): TrueForgeApi.AgentSpec {
       sandbox: { enabled: true, fileDownloads: true },
       // Incidents are long. Give the loop room, but not unbounded room.
       iterationLimit: 200,
+      // `ask_user_question` is on by default, and it stopped a postmortem to
+      // ask a human to approve its plan — in the harness UI, which nobody is
+      // watching at 3am. This agent is woken by an alert, not by a person, and
+      // its human checkpoints are deliberate and elsewhere: the Slack approval
+      // gate for live changes, the pull request review for anything in git. A
+      // question that blocks the loop is not a gate, it is a hang.
+      askUserQuestions: { enabled: false },
+      // Sub-agents default on too. One starts cold and re-reads every tool
+      // schema already paid for, and the binding constraint here is 200k tokens
+      // per minute rather than reasoning capacity — investigations have died at
+      // 535k and 618k. The prompt already says not to delegate; this enforces it.
+      dynamicSubAgents: { enabled: false },
     },
     mcpServers: configured.map((server) => server.attachment),
     skills: skills.map((skill) => ({ name: skill.name })),

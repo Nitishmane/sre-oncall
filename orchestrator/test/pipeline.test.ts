@@ -367,6 +367,62 @@ test("an incident with no thread yet reports none", () => {
   assert.equal(store.incidentThread("never-seen"), undefined);
 });
 
+test("resolving does not drop the thread; the next occurrence does", async () => {
+  // Releasing next to `announce` was a race: announce is fire-and-forget, so
+  // the postmortem's follower looked the thread up after it had gone and its
+  // RESOLVED summary never reached the channel. Release now happens when the
+  // *next* incident for that fingerprint starts.
+  const store = openStore(":memory:");
+  const { pipeline } = harnessUnderTest(testConfig(), store);
+  store.claimIncidentThread("fp-1", "C123", "1735.0001", 1_735_000_000_000);
+
+  pipeline.ingest([alert({ status: "resolved" })]);
+  await settle();
+  assert.equal(
+    store.incidentThread("fp-1")?.thread_ts,
+    "1735.0001",
+    "the postmortem still has to post here",
+  );
+
+  // A written-up incident is what marks the previous occurrence as finished.
+  store.recordPostmortem("fp-1", "pm-1");
+  pipeline.ingest([alert({ status: "firing" })]);
+  await settle();
+  assert.equal(store.incidentThread("fp-1"), undefined, "a new incident starts a new thread");
+  assert.equal(
+    store.get("fp-1")?.postmortem_session_id,
+    null,
+    "the new occurrence must be eligible for its own postmortem",
+  );
+  store.close();
+});
+
+test("a resolved alert repaints its announcement, even with no postmortem to write", async () => {
+  // The first message is the one people scroll back to and the one search
+  // shows. Left red, the channel reads as though every incident is still live.
+  const store = openStore(":memory:");
+  const { harness } = fakeHarness();
+  const seen: { fingerprint: string; ruleName: string }[] = [];
+  const pipeline = createPipeline({
+    config: testConfig(),
+    log: silent,
+    store,
+    harness,
+    sleep: async () => {},
+    onIncidentResolved: (p) => {
+      seen.push({ fingerprint: p.fingerprint, ruleName: p.ruleName });
+    },
+  });
+
+  // No healing session was ever recorded, so no postmortem follows — the
+  // repaint must not be conditional on one.
+  pipeline.ingest([alert({ status: "resolved", endsAt: "2026-08-28T02:20:00.000Z" })]);
+  await settle();
+
+  assert.deepEqual(seen, [{ fingerprint: "fp-1", ruleName: "HighErrorRate" }]);
+  store.close();
+});
+
 test("a thread is released once the incident is written up, so a recurrence starts fresh", () => {
   // A Grafana fingerprint is stable for the life of the rule. Without release,
   // the same alert firing next month would append to this month's thread.

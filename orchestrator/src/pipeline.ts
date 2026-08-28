@@ -25,6 +25,12 @@ export interface PipelineDeps {
   /** Injectable so tests don't wait out real flap delays. */
   sleep?: (ms: number) => Promise<void>;
   onSessionStarted?: SessionListener;
+  /** Called the moment an alert resolves, so its announcement can be repainted. */
+  onIncidentResolved?: (params: {
+    fingerprint: string;
+    ruleName: string;
+    resolvedAt: Date;
+  }) => void;
 }
 
 export interface AlertOutcome {
@@ -86,6 +92,16 @@ export function createPipeline(deps: PipelineDeps) {
     return slots.run(async () => {
       // Counted before the call: an attempt against a dead harness still costs
       // a slot in the hourly budget.
+      // A fresh occurrence of an alert that had already been written up starts
+      // its own thread. Released here rather than after the postmortem
+      // announces: `announce` is fire-and-forget, so releasing next to it was a
+      // race — the postmortem's own follower looked the thread up after it had
+      // gone, and its RESOLVED summary never reached the channel.
+      // `recordSeen` has already flipped the status to firing by now, so the
+      // signal that this is a *new* occurrence is the previous one's write-up.
+      if (store.get(alert.fingerprint)?.postmortem_session_id != null) {
+        store.releaseIncidentThread(alert.fingerprint);
+      }
       store.recordTriageAttempt(alert.fingerprint, now());
       const started = await harness.startSession(healingPrompt(alert, config.GITHUB_REPO), {
         kind: "healing",
@@ -99,6 +115,22 @@ export function createPipeline(deps: PipelineDeps) {
   }
 
   async function runPostmortem(alert: NormalizedAlert): Promise<AlertOutcome> {
+    // Repaint first, and unconditionally. This runs before the postmortem's
+    // settle delay and regardless of whether a postmortem follows at all — an
+    // alert that resolved without ever being healed still stops being red.
+    try {
+      deps.onIncidentResolved?.({
+        fingerprint: alert.fingerprint,
+        ruleName: alert.ruleName,
+        resolvedAt: alert.endsAt !== null ? new Date(alert.endsAt) : new Date(now()),
+      });
+    } catch (err) {
+      log.warn("resolved listener failed", {
+        fingerprint: alert.fingerprint,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const incident = store.get(alert.fingerprint);
     if (incident?.healing_session_id == null) {
       // Nothing healed it — an alert that flapped or was silenced. No postmortem.

@@ -12,6 +12,7 @@ import {
   decidedBlocks,
   decodeRef,
   incidentBlocks,
+  resolvedIncidentBlocks,
 } from "./blocks.ts";
 import { formatArguments, toolLabel, type PendingApproval } from "./translator.ts";
 
@@ -139,6 +140,34 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
       });
     }
   }
+
+  /**
+   * Repaints the incident's original message as resolved. Best effort: if it
+   * fails, the thread still carries the truth, so an incident is never held up
+   * over a cosmetic update.
+   */
+  async function markIncidentResolved(params: {
+    fingerprint: string;
+    ruleName: string;
+    resolvedAt: Date;
+  }): Promise<void> {
+    const thread = store.incidentThread(params.fingerprint);
+    if (thread === undefined) return;
+    try {
+      await app.client.chat.update({
+        channel: thread.channel,
+        ts: thread.thread_ts,
+        text: `${params.ruleName}: resolved`,
+        blocks: resolvedIncidentBlocks(params),
+      });
+    } catch (err) {
+      log.warn("could not repaint the incident message as resolved", {
+        fingerprint: params.fingerprint,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
 
   /** What a later session for an already-announced incident says as it starts. */
   function followUpLabel(kind: "healing" | "postmortem" | "handoff"): string {
@@ -271,7 +300,7 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     }
   }
 
-  return { app, start, announceIncident, stop: () => app.stop() };
+  return { app, start, announceIncident, markIncidentResolved, stop: () => app.stop() };
 }
 
 /** Narrows Bolt's loosely typed action payloads to the four fields we use. */

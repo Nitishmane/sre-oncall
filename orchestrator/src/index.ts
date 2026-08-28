@@ -20,7 +20,17 @@ const onSessionStarted: SessionListener = (started) => {
   void slack?.announceIncident(started);
 };
 
-const pipeline = createPipeline({ config, log, store, harness, onSessionStarted });
+const onIncidentResolved = (params: {
+  fingerprint: string;
+  ruleName: string;
+  resolvedAt: Date;
+}) => {
+  void slack?.markIncidentResolved(params);
+};
+
+const pipeline = createPipeline({
+  config, log, store, harness, onSessionStarted, onIncidentResolved,
+});
 const app = createApp({ config, log, store, pipeline, harness });
 
 const server = app.listen(config.PORT, () => {
