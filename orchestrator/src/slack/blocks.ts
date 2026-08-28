@@ -159,6 +159,38 @@ export function decidedBlocks(
   ];
 }
 
+/**
+ * The original alert message, rewritten once the incident is over.
+ *
+ * The first message in the channel is the one people scroll back to and the one
+ * that shows in search and notifications. Leaving it red forever means the
+ * channel reads as though every incident is still burning; the state of the
+ * world belongs in the message that announced it, not only in a reply buried
+ * under the thread.
+ */
+export function resolvedIncidentBlocks(params: {
+  ruleName: string;
+  fingerprint: string;
+  resolvedAt: Date;
+}): KnownBlock[] {
+  const when = params.resolvedAt.toISOString().replace("T", " ").slice(0, 19);
+  return [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `🟢 *${params.ruleName}* — resolved.` },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `fingerprint \`${params.fingerprint}\` · resolved ${when} UTC · details in thread`,
+        },
+      ],
+    },
+  ];
+}
+
 export function incidentBlocks(params: {
   ruleName: string;
   fingerprint: string;

@@ -25,6 +25,12 @@ export interface PipelineDeps {
   /** Injectable so tests don't wait out real flap delays. */
   sleep?: (ms: number) => Promise<void>;
   onSessionStarted?: SessionListener;
+  /** Called the moment an alert resolves, so its announcement can be repainted. */
+  onIncidentResolved?: (params: {
+    fingerprint: string;
+    ruleName: string;
+    resolvedAt: Date;
+  }) => void;
 }
 
 export interface AlertOutcome {
@@ -99,6 +105,22 @@ export function createPipeline(deps: PipelineDeps) {
   }
 
   async function runPostmortem(alert: NormalizedAlert): Promise<AlertOutcome> {
+    // Repaint first, and unconditionally. This runs before the postmortem's
+    // settle delay and regardless of whether a postmortem follows at all — an
+    // alert that resolved without ever being healed still stops being red.
+    try {
+      deps.onIncidentResolved?.({
+        fingerprint: alert.fingerprint,
+        ruleName: alert.ruleName,
+        resolvedAt: alert.endsAt !== null ? new Date(alert.endsAt) : new Date(now()),
+      });
+    } catch (err) {
+      log.warn("resolved listener failed", {
+        fingerprint: alert.fingerprint,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const incident = store.get(alert.fingerprint);
     if (incident?.healing_session_id == null) {
       // Nothing healed it — an alert that flapped or was silenced. No postmortem.

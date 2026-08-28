@@ -379,3 +379,29 @@ test("a thread is released once the incident is written up, so a recurrence star
   const later = store.claimIncidentThread("fp-1", "C123", "1799.0001", now + 86_400_000);
   assert.equal(later.thread_ts, "1799.0001", "a later occurrence opens its own thread");
 });
+
+test("a resolved alert repaints its announcement, even with no postmortem to write", async () => {
+  // The first message is the one people scroll back to and the one search
+  // shows. Left red, the channel reads as though every incident is still live.
+  const store = openStore(":memory:");
+  const { harness } = fakeHarness();
+  const seen: { fingerprint: string; ruleName: string }[] = [];
+  const pipeline = createPipeline({
+    config: testConfig(),
+    log: silent,
+    store,
+    harness,
+    sleep: async () => {},
+    onIncidentResolved: (p) => {
+      seen.push({ fingerprint: p.fingerprint, ruleName: p.ruleName });
+    },
+  });
+
+  // No healing session was ever recorded, so no postmortem follows — the
+  // repaint must not be conditional on one.
+  pipeline.ingest([alert({ status: "resolved", endsAt: "2026-08-28T02:20:00.000Z" })]);
+  await settle();
+
+  assert.deepEqual(seen, [{ fingerprint: "fp-1", ruleName: "HighErrorRate" }]);
+  store.close();
+});
