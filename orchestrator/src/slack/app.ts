@@ -97,13 +97,39 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     const channel = config.SLACK_INCIDENT_CHANNEL;
     if (channel === undefined) return;
     try {
+      // One incident, one thread. An alert produces several sessions over its
+      // life — the healing run, a postmortem when it resolves, a re-triage if
+      // it fires again after the cooldown — and announcing each at the top
+      // level scattered a single outage across the channel and re-raised an
+      // alert that was already raised. The first session for a fingerprint
+      // opens the thread; the rest report inside it.
+      const existing = store.incidentThread(params.fingerprint);
+
+      if (existing !== undefined) {
+        const follower = attach(params.sessionId, existing.channel, existing.thread_ts);
+        // A short line in the thread, not a new alert: the incident is already
+        // on the channel and the reader is already looking at it.
+        await app.client.chat.postMessage({
+          channel: existing.channel,
+          thread_ts: existing.thread_ts,
+          text: `${followUpLabel(params.kind)}…`,
+        });
+        follower.follow(harness.subscribeTurn(params.sessionId, params.turnId));
+        return;
+      }
+
       const posted = await app.client.chat.postMessage({
         channel,
         text: `${params.ruleName}: ${params.kind} session started`,
         blocks: incidentBlocks(params),
       });
       if (typeof posted.ts === "string") {
-        const follower = attach(params.sessionId, channel, posted.ts);
+        // Claim returns whichever thread is in force, so if a second session
+        // for the same fingerprint raced us here, both render into one thread.
+        const thread = store.claimIncidentThread(
+          params.fingerprint, channel, posted.ts, Date.now(),
+        );
+        const follower = attach(params.sessionId, thread.channel, thread.thread_ts);
         follower.follow(harness.subscribeTurn(params.sessionId, params.turnId));
       }
     } catch (err) {
@@ -112,6 +138,13 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /** What a later session for an already-announced incident says as it starts. */
+  function followUpLabel(kind: "healing" | "postmortem" | "handoff"): string {
+    if (kind === "postmortem") return "Resolved — writing the postmortem";
+    if (kind === "handoff") return "Preparing the on-call handoff";
+    return "Picking this up again";
   }
 
   /** Strips the bot mention so the agent doesn't see `<@U0XXXXXXXXX>` in the question. */

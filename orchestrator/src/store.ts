@@ -48,6 +48,13 @@ export interface ApprovalRow {
   rationale: string;
 }
 
+export interface IncidentThreadRow {
+  fingerprint: string;
+  channel: string;
+  thread_ts: string;
+  created_at: number;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS incidents (
   fingerprint            TEXT PRIMARY KEY,
@@ -101,6 +108,19 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_by    TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS approvals_call ON approvals (session_id, tool_call_id);
+
+-- One Slack thread per incident, keyed by the alert's fingerprint rather than
+-- by session. An incident produces several sessions — the healing run, a
+-- postmortem when it resolves, a re-triage if it fires again after the
+-- cooldown — and each used to open its own top-level message, so one outage
+-- scattered itself across the channel. The first session for a fingerprint
+-- posts and claims the thread; every later one joins it.
+CREATE TABLE IF NOT EXISTS incident_threads (
+  fingerprint TEXT PRIMARY KEY,
+  channel     TEXT NOT NULL,
+  thread_ts   TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
 `;
 
 export function openStore(path: string) {
@@ -144,6 +164,14 @@ export function openStore(path: string) {
       updated_at = excluded.updated_at
   `);
   const slackByThread = db.prepare("SELECT * FROM slack_sessions WHERE channel = ? AND thread_ts = ?");
+  const selectIncidentThread = db.prepare("SELECT * FROM incident_threads WHERE fingerprint = ?");
+  const dropIncidentThread = db.prepare("DELETE FROM incident_threads WHERE fingerprint = ?");
+  // First writer wins: two alerts arriving together must not each claim a thread.
+  const claimIncidentThread = db.prepare(`
+    INSERT INTO incident_threads (fingerprint, channel, thread_ts, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(fingerprint) DO NOTHING
+  `);
   const slackBySession = db.prepare("SELECT * FROM slack_sessions WHERE session_id = ?");
   const setStatusTs = db.prepare("UPDATE slack_sessions SET status_ts = ?, updated_at = ? WHERE session_id = ?");
 
@@ -228,6 +256,32 @@ export function openStore(path: string) {
     },
     slackSessionForThread(channel: string, threadTs: string): SlackSessionRow | undefined {
       return slackByThread.get(channel, threadTs) as SlackSessionRow | undefined;
+    },
+    /** The Slack thread already showing this incident, if one has been opened. */
+    incidentThread(fingerprint: string): IncidentThreadRow | undefined {
+      return selectIncidentThread.get(fingerprint) as IncidentThreadRow | undefined;
+    },
+    /**
+     * Claims the thread for an incident. Returns the thread actually in force —
+     * which is the existing one if another session claimed it first, so a race
+     * ends with both sessions rendering into the same place.
+     */
+    claimIncidentThread(
+      fingerprint: string, channel: string, threadTs: string, now: number,
+    ): IncidentThreadRow {
+      claimIncidentThread.run(fingerprint, channel, threadTs, now);
+      // The row is guaranteed: either this insert landed, or an earlier one did.
+      return selectIncidentThread.get(fingerprint) as unknown as IncidentThreadRow;
+    },
+    /**
+     * Ends an incident's claim on its thread, so the next occurrence of the
+     * same alert starts a fresh one. A Grafana fingerprint is stable for the
+     * life of the rule, so without this a recurrence next month would append
+     * to a thread from today. Sessions already following the thread are
+     * unaffected — they hold it by session id.
+     */
+    releaseIncidentThread(fingerprint: string): void {
+      dropIncidentThread.run(fingerprint);
     },
     slackSession(sessionId: string): SlackSessionRow | undefined {
       return slackBySession.get(sessionId) as SlackSessionRow | undefined;
