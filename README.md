@@ -51,7 +51,7 @@ true on recording day.
 | Path | What it is |
 |---|---|
 | `orchestrator/` | The webhook receiver and session broker. Verifies alerts, applies admission policy, starts harness sessions, runs the Slack bot, proxies the chat console. |
-| `agent/` | The SRE-Oncall agent definition: system prompt, MCP attachments, approval policy, and an idempotent provisioning script. |
+| `agent/` | Both agent definitions — SRE-Oncall and Automation-Engineer: system prompts, MCP attachments, approval policy, and an idempotent provisioning script. |
 | `skills/sre-runbooks/` | Runbooks per failure signature, plus the triage-report, postmortem and handoff formats. Loaded by the harness as a git-backed skill. |
 | `mcp/` | Local stdio→HTTP bridges for the MCP servers the harness can only reach over a URL. |
 | `demo-env/` | kind cluster, the fault-injectable demo service, the ArgoCD application, the Terraform-managed alerting config, and the inject/reset scripts. |
@@ -128,6 +128,23 @@ npm run provision -- --list-models         # what this harness offers
 
 Verified against a live harness with both. No code changes either way.
 
+### Talking to an agent from the terminal
+
+```bash
+npm run ask -- automation-engineer "Call harness_selftest with input 'hello'"
+npm run ask -- sre-oncall "What is the demo service doing right now?"
+```
+
+Prints tool calls and results as they happen. It **stops at approval gates** and
+names what it was asked to approve, which is usually the thing you wanted to
+see; `--approve` allows the pending call and resumes. Note that the harness
+wraps MCP tools behind its own `call_tool`, so a gate would otherwise read
+"approve call_tool?" — `ask` unwraps that to the server and tool underneath.
+
+`n8n/workflows/harness-selftest.json` is a workflow built for exactly this: no
+credentials, no external calls, and it returns a timestamp that could only have
+been produced inside n8n. See `n8n/README.md`.
+
 ## Design notes
 
 **Alert text is untrusted.** Anyone who can name a Kubernetes object can write
@@ -156,6 +173,15 @@ terminates at the orchestrator, never at the harness. See `web/README.md`.
 alerting config, and nothing owns both. That is what makes each of the agent's
 two remediation paths unambiguous: a bad deploy is an ArgoCD rollback, a wrong
 threshold is an HCL change with a `terraform plan` attached to the PR.
+
+**Two agents, disjoint tools.** SRE-Oncall is woken by an alert with nobody
+watching, so a blocking question is a hang and `ask_user_question` is off.
+Automation-Engineer exists to be talked to, so the same setting is on and asking
+is the job. They share no MCP servers: the on-call agent has the cluster, the
+deploy repo and alerting; the automation agent has n8n and nothing else, so it
+cannot reach production even if a requirement asks it to. Splitting them also
+stops each one paying tool-schema tokens for the other's servers on every
+request — the constraint that has already killed investigations at 618k tokens.
 
 **Approval gates are structural.** Every MCP attachment declares
 `requireApprovalForTools`, so the harness pauses the turn rather than the agent

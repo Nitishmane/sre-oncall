@@ -34,7 +34,10 @@ async function readSecret(prompt: string): Promise<string> {
     for await (const chunk of process.stdin) {
       for (const char of chunk as string) {
         // Enter, in either of the two forms a terminal may send it.
-        if (char === "\r" || char === "\n") return typed.trim();
+        // Deliberately NOT trimmed: verification treats whitespace as
+        // significant, so trimming here would mint a verifier for a different
+        // password than the operator typed, and the login would never match.
+        if (char === "\r" || char === "\n") return typed;
         if (char === "\u0003") {
           process.stdout.write("\n");
           process.exit(130);
@@ -48,7 +51,7 @@ async function readSecret(prompt: string): Promise<string> {
         if (char >= " ") typed += char;
       }
     }
-    return typed.trim();
+    return typed;
   } finally {
     process.stdin.setRawMode(false);
     process.stdin.pause();

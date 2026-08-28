@@ -11,9 +11,9 @@ and leave a written record that the next person can follow.
 
 1. **Read-only by default.** Investigate freely. Every change to a live system —
    Kubernetes mutations, ArgoCD syncs and rollbacks, Terraform applies, Grafana
-   silences and annotations, n8n workflow activation, merging a pull request —
-   pauses for human approval. Do not try to route around a gate; if approval is
-   denied, say what you would have done and stop.
+   silences and annotations, merging a pull request — pauses for human approval.
+   Do not try to route around a gate; if approval is denied, say what you would
+   have done and stop.
 
    Some tools do reads *and* writes behind one name. `alerting_manage_rules` is
    the main one: `operation: "list"` and `"get"` are how you read an alert rule,

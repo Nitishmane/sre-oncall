@@ -88,6 +88,42 @@ test("a verifier demanding absurd memory is refused rather than run", () => {
   assert.equal(parseConsoleUsers("bomb:scrypt$abc$8$1$c2FsdA==$aGFzaA==").size, 0);
 });
 
+test("a verifier whose N is not a power of two is refused at parse time", async () => {
+  // Node's scrypt throws unless N is a power of two. Keeping such an entry made
+  // every login for that account a 500 instead of a clean refusal.
+  const bad = VERIFIER.replace("scrypt$16384$", "scrypt$16385$");
+  assert.equal(parseConsoleUsers(`reviewer:${bad}`).size, 0);
+  assert.equal(await verifyConsoleUser("reviewer", PASSWORD, parseConsoleUsers(`reviewer:${bad}`)), false);
+});
+
+test("one malformed account does not take a valid one down with it", () => {
+  const bad = VERIFIER.replace("scrypt$16384$", "scrypt$16385$");
+  const users = parseConsoleUsers(`broken:${bad}, reviewer:${VERIFIER}`);
+  assert.deepEqual([...users.keys()], ["reviewer"]);
+});
+
+test("whitespace in a password is significant, and survives minting", async () => {
+  // The generator used to trim, which minted a verifier for a different string
+  // than was typed — the account then could not log in with either spelling.
+  const padded = "  spaced out password  ";
+  const users = parseConsoleUsers(`reviewer:${await hashPassword(padded)}`);
+  assert.equal(await verifyConsoleUser("reviewer", padded, users), true);
+  assert.equal(await verifyConsoleUser("reviewer", padded.trim(), users), false);
+});
+
+test("concurrent logins all resolve correctly under the derivation cap", async () => {
+  // The cap queues derivations to bound memory; it must not drop or cross them.
+  const users = parseConsoleUsers(USERS);
+  const results = await Promise.all([
+    verifyConsoleUser("reviewer", PASSWORD, users),
+    verifyConsoleUser("reviewer", "wrong", users),
+    verifyConsoleUser("mallory", PASSWORD, users),
+    verifyConsoleUser("reviewer", PASSWORD, users),
+    verifyConsoleUser("reviewer", "also wrong", users),
+  ]);
+  assert.deepEqual(results, [true, false, false, true, false]);
+});
+
 test("a username cannot smuggle a colon to shift the verifier boundary", () => {
   // Splitting on the last colon instead of the first would make this parse.
   assert.equal(parseConsoleUsers(`a:b:${VERIFIER}`).size, 0);

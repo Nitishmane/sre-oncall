@@ -63,6 +63,16 @@ counter: Vercel functions are per-request instances, so an in-memory one would
 reset constantly and buy nothing but false confidence. Use the generated
 24-character passwords rather than picking your own.
 
+The KDF's cost cuts both ways, and that is the sharper risk here. Each
+derivation holds 16 MiB, the sign-in route is public, and an attacker needs no
+valid credential to make you spend that — concurrent bad logins are a cheaper
+way to exhaust an instance than to guess a password. `lib/credentials.ts`
+therefore caps concurrent derivations, which bounds memory per instance. It is
+not a rate limit and does not pretend to be one: bounding *attempts* across
+instances needs shared state (Redis, Upstash) that this deployment does not
+have. If this console ever faces something more hostile than hackathon
+reviewers, that is the gap to close first.
+
 Anyone holding an account can drive the agent. What stops a signed-in user from
 changing the cluster on a whim is the approval gate downstream, not this login.
 

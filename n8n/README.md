@@ -176,13 +176,50 @@ The script targets `/mcp` on the port you give it, so for the trigger's
 part is that it is a **JSON-RPC POST handshake, not a REST GET** — there is no
 `/tools/list` URL to curl on any MCP server.
 
-Expected tool names once the three workflows are imported *and activated*:
-`notify-oncall`, `create-incident-ticket`, `escalate-incident`.
+**Until a workflow carrying that trigger is active this endpoint returns 404** —
+`"The requested webhook POST sre-oncall is not registered"`. That is the
+expected state of a fresh instance, not a misconfiguration.
 
-**Until then this endpoint returns 404** — `"The requested webhook POST
-sre-oncall is not registered"`. That is the expected state of a fresh instance,
-not a misconfiguration: n8n only registers the path when a workflow carrying
-that trigger is switched on.
+### harness-selftest — the one to try first
+
+`workflows/harness-selftest.json` exists to answer "is the path from the harness
+to n8n actually wired up?" without depending on anything else being right. It is
+an MCP Server Trigger and a Code Tool, so it needs **no credentials** beyond the
+bearer, calls nothing external, and changes nothing. It echoes your input back
+with a server-side timestamp — a value that can only have been produced inside
+n8n, which is the point.
+
+Set it up once:
+
+1. Create a credential of type **Bearer Auth** named `sre-oncall MCP bearer`,
+   with `N8N_TOOLS_BEARER` as the token.
+2. Import `n8n/workflows/harness-selftest.json` and attach that credential to
+   the MCP Server Trigger node.
+3. **Activate it.** The tool does not exist until you do.
+
+Then, from the harness:
+
+```bash
+npm run ask -- automation-engineer "Call harness_selftest with input 'hello'"
+```
+
+That stops at the approval gate and names the call. Add `--approve` to allow it
+and see the workflow's real output come back.
+
+### A warning about the three standing workflows
+
+`notify-oncall`, `create-incident-ticket` and `escalate-incident` **do not
+currently register as tools**, and never have. Two faults, both silent:
+
+- their trigger node is typed `n8n-nodes-langchain.mcptrigger`, but the real
+  node is `@n8n/n8n-nodes-langchain.mcpTrigger` — different package prefix and
+  different capitalisation
+- they wire the tool to the trigger over a `main` connection. Sub-nodes attach
+  to a root node over a typed connection; for a tool that is `ai_tool`
+
+Neither produces an error. The workflow imports, opens in the editor, and
+exposes nothing. Compare against `harness-selftest.json`, which is known to
+work, before trusting any of the three.
 
 ## Stopping the Containers
 

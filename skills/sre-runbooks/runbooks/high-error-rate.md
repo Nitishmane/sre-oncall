@@ -39,8 +39,9 @@ The breakdown tells you which shape of incident this is:
 
 - Caused by a deploy → roll back (`bad-deploy-rollback.md`).
 - Caused by a dependency → the fix is usually not in this service; say so
-  explicitly, and use the n8n `escalate-incident` tool (gated) to reach whoever
-  owns it rather than guessing at a workaround.
+  explicitly in the incident thread and name the owning team, rather than
+  guessing at a workaround. Escalation reaches humans through the incident
+  thread, not through a tool you call.
 - Caused by config → open a PR against the manifest; never hand-edit the live
   ConfigMap.
 
