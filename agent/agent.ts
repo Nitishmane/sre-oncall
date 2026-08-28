@@ -245,23 +245,55 @@ export const mcpServers: McpDefinition[] = [
       name: "n8n-builder",
       enableTools: ["@all"],
       // This server has two halves, and which half you get depends on whether
-      // the container was given N8N_API_KEY. Without it you get the seven
-      // documentation tools below and nothing else — the agent can design and
-      // validate a workflow but cannot put it into n8n.
+      // the container was given N8N_API_KEY. Without it you get seven
+      // documentation tools and nothing else — the agent can design and
+      // validate a workflow but cannot put it into n8n. With it, 25.
       //
-      // Gated wholesale on purpose, for now. Creating an *inactive* workflow
-      // changes nothing that runs, so the narrower and better gate is
-      // activation + deletion only — but the `n8n_*` names are not observable
-      // until the API key is wired, and this repo has been bitten before by
-      // guessing tool names from documentation. An explicit-name gate that
-      // misses fails *open*, which is the wrong direction to be wrong in.
-      // Once `mcp/probe-tools.sh 8105 "$N8N_MCP_AUTH_TOKEN"` reports the real
-      // `n8n_*` names, narrow this to activation/trigger/delete.
-      requireApprovalForTools: ["@write", "@destructive"],
-      // The documentation half, verified against the live server on
-      // 2026-08-28. A preload name the server does not expose is silently
-      // dropped, so every name here came from that probe.
-      preloadTools: ["search_nodes", "get_node", "validate_workflow"],
+      // Gated by name rather than by `@write`, for the reason the Grafana
+      // entry above explains at length: the group classifies on tool-name
+      // shape, and several tools here are read *and* write behind one name.
+      //
+      // `n8n_create_workflow` is deliberately NOT gated. Its own description
+      // is "Created inactive" — verified on a live tools/list — so creating
+      // one changes nothing that runs. It is also this agent's entire purpose;
+      // gating it would stop the agent on the one call it exists to make, the
+      // same mistake `@write` made for the SRE agent's pull requests.
+      //
+      // What is gated is anything that can make a workflow *fire*. Note there
+      // is no activate tool: activation happens inside `n8n_update_*`, so both
+      // updates are gated even though "update" sounds tamer than "activate".
+      requireApprovalForTools: [
+        // Can flip a workflow to active — the act that reaches real people.
+        "n8n_update_full_workflow",
+        "n8n_update_partial_workflow",
+        // Creates *and* then mutates ("deploys first, then auto-fixes").
+        "n8n_deploy_template",
+        "n8n_autofix_workflow",
+        // Executes. `n8n_test_workflow` triggers the real thing against real
+        // systems; an evaluation run is an execution wearing a different hat.
+        "n8n_test_workflow",
+        "n8n_evaluations",
+        // "This action cannot be undone."
+        "n8n_delete_workflow",
+        // Secrets. The prompt tells the agent to ask for a credential *name*
+        // and never a value; this is what stops it doing otherwise.
+        "n8n_manage_credentials",
+        // Multi-action tools whose writes dominate and whose reads this agent
+        // does not need: rollback/cleanup, row writes, folder moves.
+        "n8n_workflow_versions",
+        "n8n_manage_datatable",
+        "n8n_manage_folders",
+      ],
+      // Left ungated on purpose: `n8n_executions` is read *and* delete behind
+      // one name, and reading the first execution is how the agent tells a
+      // human whether their new workflow actually worked. Same trade the
+      // Grafana entry makes — the prompt forbids `action: "delete"` in words,
+      // because gating it here would cost the read that matters.
+      //
+      // Names verified against a live tools/list on 2026-08-28. A preload
+      // entry the server does not expose is silently dropped, so guessing here
+      // degrades the agent with no error anywhere.
+      preloadTools: ["search_nodes", "get_node", "validate_workflow", "n8n_create_workflow"],
     },
     requiresEnv: ["N8N_MCP_AUTH_TOKEN"],
   },
