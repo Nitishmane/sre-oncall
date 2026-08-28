@@ -161,6 +161,10 @@ export function createPipeline(deps: PipelineDeps) {
       );
       store.recordPostmortem(alert.fingerprint, started.sessionId);
       announce(started, "postmortem", alert.ruleName, alert.fingerprint);
+      // The postmortem is the last thing this incident produces, so the thread
+      // has served its purpose. Released *after* announcing, so the postmortem
+      // itself still lands in the thread it belongs to.
+      store.releaseIncidentThread(alert.fingerprint);
       return { fingerprint: alert.fingerprint, action: "postmortem" as const, sessionId: started.sessionId };
     });
   }

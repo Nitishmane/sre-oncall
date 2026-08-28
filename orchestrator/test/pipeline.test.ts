@@ -422,3 +422,16 @@ test("a resolved alert repaints its announcement, even with no postmortem to wri
   assert.deepEqual(seen, [{ fingerprint: "fp-1", ruleName: "HighErrorRate" }]);
   store.close();
 });
+
+test("a thread is released once the incident is written up, so a recurrence starts fresh", () => {
+  // A Grafana fingerprint is stable for the life of the rule. Without release,
+  // the same alert firing next month would append to this month's thread.
+  const store = openStore(":memory:");
+  const now = 1_735_000_000_000;
+  store.claimIncidentThread("fp-1", "C123", "1735.0001", now);
+  store.releaseIncidentThread("fp-1");
+  assert.equal(store.incidentThread("fp-1"), undefined);
+
+  const later = store.claimIncidentThread("fp-1", "C123", "1799.0001", now + 86_400_000);
+  assert.equal(later.thread_ts, "1799.0001", "a later occurrence opens its own thread");
+});

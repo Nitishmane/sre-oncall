@@ -168,6 +168,7 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     }
   }
 
+
   /** What a later session for an already-announced incident says as it starts. */
   function followUpLabel(kind: "healing" | "postmortem" | "handoff"): string {
     if (kind === "postmortem") return "Resolved — writing the postmortem";

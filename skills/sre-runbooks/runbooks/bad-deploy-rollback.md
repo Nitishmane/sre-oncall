@@ -34,7 +34,7 @@ the cause is still committed. The fix has to land in git.
    precisely which lines to put back, and it is what you check your own PR
    against at the end.
 2. `create_branch` from the deploy branch, e.g. `revert/<short-sha>`.
-3. **Fetch the previous good content with `curl` in the sandbox.**
+3. **Fetch the previous good content with `read_repo_file`.**
 
    `get_file_contents` will *not* give you the file. It answers
    `successfully downloaded text file (SHA: …)` and nothing else: the MCP
