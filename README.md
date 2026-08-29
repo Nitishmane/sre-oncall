@@ -1,9 +1,18 @@
-# SRE-Oncall
+# TrueForge Agents
 
-An AI on-call engineer built on the [TrueForge](https://trueforge.dev) agent
-harness. A Grafana alert fires; the agent investigates the live cluster, proposes
-the smallest safe fix, waits for a human to approve it, applies it, verifies that
-the metric actually recovered, and writes the postmortem.
+Two AI agents for platform operations, both running on the
+[TrueForge](https://trueforge.dev) agent harness.
+
+**Oncall** is woken by a Grafana alert. It investigates the live cluster,
+correlates the failure to the deploy that caused it, and opens a revert pull
+request carrying its reasoning. A human reviews and merges — that merge is the
+approval, and the agent never merges its own work.
+
+**Automation-Engineer** turns a spoken requirement into an n8n workflow. It
+shares no tools with the first agent and cannot reach the cluster at all.
+
+*An independent hackathon submission built on TrueFoundry's TrueForge harness —
+not an official TrueFoundry project.*
 
 Built for the WeMakeDevs **Agent Harness** hackathon (Aug 24–30, 2026).
 

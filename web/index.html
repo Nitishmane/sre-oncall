@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SRE-Oncall — Two AI Agents on the TrueForge Harness</title>
-<meta name="description" content="SRE-Oncall: an alert-driven on-call agent and an automation engineer, both on the TrueForge harness. Which agent runs on what, which tools, and where the approval gates are.">
+<title>TrueForge Agents — Two AI Agents for Platform Ops</title>
+<meta name="description" content="TrueForge Agents: an alert-driven on-call agent and an automation engineer, both running on the TrueForge harness. Which agent runs on what, which tools, and where the approval gates are.">
 <style>
   :root {
     --bg: #0a0e12;
@@ -87,6 +87,10 @@
   ol.flow { list-style: none; counter-reset: step; }
   ol.flow li { counter-increment: step; display: grid; grid-template-columns: 52px 1fr; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
   ol.flow li::before { content: "0" counter(step); color: var(--green); font-weight: 700; font-size: 20px; opacity: .85; }
+  /* Both the title and the sub-line are direct children, so without this the
+     second one auto-places into the 52px number column and renders one word
+     per line. Pin every real child to column two. */
+  ol.flow li > * { grid-column: 2; }
   ol.flow li:nth-child(n+10)::before { content: counter(step); }
   ol.flow b { color: #eaf4fb; }
   ol.flow .who { color: var(--dim); font-size: 12px; display: block; margin-top: 2px; }
@@ -123,17 +127,32 @@
   .shared { margin-top: 14px; border: 1px dashed var(--line); border-radius: 6px; padding: 13px 16px; font-size: 12.5px; color: var(--dim); background: rgba(90,209,230,.03); }
   .shared b { color: var(--cyan); }
 
-  /* gate mechanism */
-  .gateflow { display: grid; gap: 0; }
-  .gnode { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; }
-  .gnode .t { color: #eaf4fb; font-weight: 700; font-size: 13.5px; }
-  .gnode .d { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
-  .gnode.stop { border-left: 3px solid var(--amber); }
-  .gnode.go { border-left: 3px solid var(--green); }
-  .gnode.deny { border-left: 3px solid var(--red); }
-  .garrow { text-align: center; color: var(--green-dim); padding: 7px 0; font-size: 15px; }
-  .garrow small { color: var(--dim); display: block; font-size: 11px; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  /* lane diagrams — horizontal, HTML so they stay sharp on a projector */
+  .diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px 20px; overflow-x: auto; }
+  .drow { display: flex; align-items: center; gap: 9px; margin: 14px 0; flex-wrap: nowrap; min-width: 860px; }
+  .drow:first-child { margin-top: 0; }
+  .drow:last-child { margin-bottom: 0; }
+  .dlabel { width: 108px; flex-shrink: 0; color: var(--dim); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .node { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 9px 13px; font-size: 12.5px; font-weight: 600; color: var(--txt); white-space: nowrap; flex-shrink: 0; }
+  .node small { display: block; color: var(--dim); font-size: 10.5px; font-weight: 400; margin-top: 2px; letter-spacing: 0; }
+  .node.mcp   { border-color: rgba(90,209,230,.55); box-shadow: 0 0 0 1px rgba(90,209,230,.14) inset; }
+  .node.agent { border-color: rgba(70,224,140,.6); box-shadow: 0 0 0 1px rgba(70,224,140,.16) inset; }
+  .node.gate  { border-color: var(--amber); background: #241d0e; }
+  .node.human { border-color: var(--violet); background: #1d1728; }
+  .node.alarm { border-color: var(--red); }
+  .node.ok    { border-color: rgba(70,224,140,.5); background: #10241a; }
+  .arrow { color: var(--green-dim); flex-shrink: 0; font-size: 15px; }
+  .branch { color: var(--dim); font-size: 10.5px; font-style: italic; flex-shrink: 0; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 16px; font-size: 11px; color: var(--dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid; display: inline-block; }
+  .sw-mcp { border-color: rgba(90,209,230,.55); }
+  .sw-agent { border-color: rgba(70,224,140,.6); }
+  .sw-gate { border-color: var(--amber); background: #241d0e; }
+  .sw-human { border-color: var(--violet); background: #1d1728; }
+  .caption { font-size: 12.5px; color: var(--dim); margin-top: 14px; max-width: 780px; }
+  .caption b { color: var(--txt); }
 
   /* topology */
   .topo { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
@@ -186,7 +205,7 @@
   a { color: var(--cyan); text-decoration: none; }
   a:hover { text-decoration: underline; }
   @media (max-width: 720px) {
-    .lanes, .split { grid-template-columns: 1fr; }
+    .lanes { grid-template-columns: 1fr; }
     ol.flow li { grid-template-columns: 40px 1fr; }
     body { font-size: 14px; }
   }
@@ -195,7 +214,7 @@
 <body>
 
 <div class="statusbar">
-  <span><span class="dot">●</span> <b>SRE-ONCALL</b> v0.1</span>
+  <span><span class="dot">●</span> <b>TRUEFORGE AGENTS</b> v0.1</span>
   <span>harness: TrueForge</span>
   <span>model: openai/gpt-5-6-terra</span>
   <span>agents: 2</span>
@@ -205,11 +224,11 @@
 <main>
 
 <header class="hero">
-  <div class="prompt">$ ./sre-oncall --explain</div>
+  <div class="prompt">$ ./trueforge-agents --explain</div>
   <h1>Two agents that do<br>on-call work<span class="cursor"></span></h1>
   <p class="tagline">
     An alert fires at 3am. Something changed twenty minutes ago and nobody remembers what.
-    <em>SRE-Oncall investigates it — reads the metrics, the logs, the cluster events and the deploy
+    <em>Oncall investigates it — reads the metrics, the logs, the cluster events and the deploy
     history — then opens a pull request containing the revert and its own reasoning.</em>
     A human reviews and merges. That merge is the approval; the agent never merges its own work.
   </p>
@@ -262,6 +281,121 @@
     <li><b>The alert resolves and the agent posts the summary in the same Slack thread.</b>
       <span class="who">Then drafts a postmortem into Notion.</span></li>
   </ol>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="callgraph">
+  <h2>Who calls what</h2>
+  <p class="lede">
+    The healing loop as it actually runs, one lane per phase. Every hop names the
+    <b>MCP server</b> that carries it — that is the part worth being precise about, because it is
+    where the agent's reach begins and ends.
+  </p>
+
+  <div class="diagram">
+    <div class="drow">
+      <div class="dlabel">Detect</div>
+      <div class="node alarm">liveness probe fails<small>kind cluster · demo-service</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Prometheus<small>kube-prometheus-stack</small></div>
+      <span class="arrow">→</span>
+      <div class="node alarm">Grafana rule<small>ReplicasUnavailable · Terraform-managed</small></div>
+      <span class="arrow">→</span>
+      <div class="node">orchestrator<small>:8080 · bearer-authed webhook</small></div>
+      <span class="arrow">→</span>
+      <div class="node">admission<small>dedupe · rate-limit · flap delay</small></div>
+    </div>
+
+    <div class="drow">
+      <div class="dlabel">Investigate</div>
+      <div class="node agent">sre-oncall<small>TrueForge session · gpt-5-6-terra</small></div>
+      <span class="arrow">→</span>
+      <div class="node mcp">grafana MCP<small>alerting_manage_rules · query_prometheus</small></div>
+      <span class="arrow">→</span>
+      <div class="node mcp">kubernetes MCP<small>pods_get · events_list · pods_log previous</small></div>
+      <span class="arrow">→</span>
+      <div class="node mcp">argocd MCP<small>get_application_events — what synced, when</small></div>
+    </div>
+
+    <div class="drow">
+      <div class="dlabel">Propose</div>
+      <div class="node mcp">raw-file MCP<small>read_repo_file — the previous good content</small></div>
+      <span class="arrow">→</span>
+      <div class="node mcp">github MCP<small>create_branch → create_or_update_file</small></div>
+      <span class="arrow">→</span>
+      <div class="node ok">create_pull_request<small>UNGATED — it changes nothing that runs</small></div>
+      <span class="arrow">→</span>
+      <div class="node">PR body<small>CAUSE · CHANGE · WHY · EXPECT · RISK</small></div>
+    </div>
+
+    <div class="drow">
+      <div class="dlabel">Land</div>
+      <div class="node human">human reviews<small>the pull request is the approval gate</small></div>
+      <span class="arrow">→</span>
+      <div class="node gate">merge<small>merge_pull_request is gated — the agent cannot</small></div>
+      <span class="arrow">→</span>
+      <div class="node">ArgoCD auto-syncs<small>git is the source of truth</small></div>
+    </div>
+
+    <div class="drow">
+      <div class="dlabel">Verify</div>
+      <div class="node mcp">grafana MCP<small>re-query the alert's own expression</small></div>
+      <span class="arrow">→</span>
+      <div class="node ok">alert returns to Normal<small>not "a pod went Ready"</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Slack thread<small>same thread as the alert</small></div>
+      <span class="arrow">→</span>
+      <div class="node mcp">notion MCP<small>postmortem page</small></div>
+    </div>
+
+    <div class="legend">
+      <span><span class="swatch sw-agent"></span> agent session</span>
+      <span><span class="swatch sw-mcp"></span> MCP server</span>
+      <span><span class="swatch sw-gate"></span> approval gate</span>
+      <span><span class="swatch sw-human"></span> human decision</span>
+    </div>
+  </div>
+  <p class="caption">
+    <b>The agent never merges.</b> It reaches production only by writing a document a person reads.
+    Opening that document is ungated on purpose — stopping to ask permission to open a PR leaves the
+    incident burning while you wait for permission to do the one thing that helps.
+  </p>
+
+  <h3>Slack → run an automation</h3>
+  <div class="diagram">
+    <div class="drow">
+      <div class="dlabel">Ask</div>
+      <div class="node human">@Automation-Agent<small>a person, in #automation-agent</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Slack app #2<small>Socket Mode · channel-scoped</small></div>
+      <span class="arrow">→</span>
+      <div class="node">orchestrator<small>routes by bot → agent</small></div>
+    </div>
+    <div class="drow">
+      <div class="dlabel">Route</div>
+      <div class="node agent">automation-engineer<small>separate agent · no cluster access</small></div>
+      <span class="arrow">→</span>
+      <div class="node mcp">n8n-tools MCP<small>list_tools → call_tool</small></div>
+    </div>
+    <div class="drow">
+      <div class="dlabel">Gate</div>
+      <div class="node gate">turn pauses<small>n8n-tools is @all gated</small></div>
+      <span class="arrow">→</span>
+      <div class="node human">approver clicks<small>Block Kit · named approver list</small></div>
+    </div>
+    <div class="drow">
+      <div class="dlabel">Run</div>
+      <div class="node">n8n MCP Server Trigger<small>/mcp/sre-oncall · bearer auth</small></div>
+      <span class="arrow">→</span>
+      <div class="node ok">workflow executes<small>its own execution record in n8n</small></div>
+      <span class="arrow">→</span>
+      <div class="node">answer in thread<small>same Slack thread</small></div>
+    </div>
+  </div>
+  <p class="caption">
+    Two Slack apps, two Socket Mode connections. A mention fires in <b>any</b> channel a bot is in,
+    so each bot is scoped to its own — otherwise both would answer in the same room.
+  </p>
 </section>
 
 <!-- ─────────────────────────────────────────── -->
@@ -441,19 +575,35 @@
     human decides.
   </p>
 
-  <div class="gateflow">
-    <div class="gnode"><div class="t">agent requests a tool call</div><div class="d">e.g. argocd.rollback_application</div></div>
-    <div class="garrow">↓<small>harness checks the attachment's requireApprovalForTools</small></div>
-    <div class="split">
-      <div class="gnode go"><div class="t">not gated</div><div class="d">executes immediately — reads, and the PR that a human is going to review</div></div>
-      <div class="gnode stop"><div class="t">gated</div><div class="d">the turn pauses. Not a prompt, not a convention: the call does not run.</div></div>
+  <div class="diagram">
+    <div class="drow">
+      <div class="dlabel">Requested</div>
+      <div class="node agent">agent asks for a tool<small>e.g. argocd.rollback_application</small></div>
+      <span class="arrow">→</span>
+      <div class="node">harness checks the manifest<small>requireApprovalForTools on the attachment</small></div>
+      <span class="branch">↘ not listed</span>
+      <div class="node ok">executes<small>reads, and the PR a human will review</small></div>
     </div>
-    <div class="garrow">↓<small>written to the audit table BEFORE it is shown, so the record survives a Slack outage</small></div>
-    <div class="gnode"><div class="t">rendered to a human</div><div class="d">Slack Block Kit, with the agent's own reasoning for <em>this</em> call — not an opaque function name</div></div>
-    <div class="garrow">↓<small>the decision is claimed atomically — two people clicking at once cannot both submit</small></div>
-    <div class="split">
-      <div class="gnode go"><div class="t">approved</div><div class="d">a new turn resumes the session where it paused</div></div>
-      <div class="gnode deny"><div class="t">denied</div><div class="d">the agent is told, says what it would have done, and stops</div></div>
+    <div class="drow">
+      <div class="dlabel">Gated</div>
+      <div class="node gate">the turn pauses<small>the call does not run — not a prompt, not a convention</small></div>
+      <span class="arrow">→</span>
+      <div class="node">written to the audit table<small>BEFORE it is shown — survives a Slack outage</small></div>
+      <span class="arrow">→</span>
+      <div class="node">rendered to a human<small>with the agent's reasoning for this call</small></div>
+    </div>
+    <div class="drow">
+      <div class="dlabel">Decided</div>
+      <div class="node human">approver clicks<small>claimed atomically — two clicks cannot both win</small></div>
+      <span class="branch">↗ approve</span>
+      <div class="node ok">new turn resumes<small>the session continues where it paused</small></div>
+      <span class="branch">↘ deny</span>
+      <div class="node alarm">agent is told<small>says what it would have done, stops</small></div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch sw-agent"></span> agent</span>
+      <span><span class="swatch sw-gate"></span> paused, waiting on a human</span>
+      <span><span class="swatch sw-human"></span> human decision</span>
     </div>
   </div>
 
@@ -588,7 +738,8 @@
 </section>
 
 <footer>
-  <span>SRE-Oncall · WeMakeDevs Agent Harness Hackathon 2026</span>
+  <span>TrueForge Agents · WeMakeDevs Agent Harness Hackathon 2026</span>
+  <span>An independent hackathon submission built on TrueFoundry's TrueForge harness — not an official TrueFoundry project.</span>
   <a href="https://github.com/Nitishmane/sre-oncall">source</a>
   <a href="https://trueforge.dev">TrueForge</a>
   <span>Built with AI assistance — disclosed in <code>docs/ai-assistance.md</code>. Code review by the Qodo GitHub App on pull request diffs.</span>
