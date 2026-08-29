@@ -1,39 +1,42 @@
 # Submission checklist
 
-Required components, per `research/trueforge-hackathon.md`, mapped to their
-actual state in this checkout. "Verified" means checked against the code or
-git history in this repository; "outstanding" means it needs action before
-8:00 PM London, Aug 30 2026, and could not be confirmed from here.
+Required components mapped to their actual state. "Verified" means checked
+against the code, the live systems, or GitHub itself — not inferred.
+"Outstanding" means it still needs doing before 8:00 PM London, Aug 30 2026.
 
 | Required | State | Notes |
 |---|---|---|
-| Public source code repository with a functioning README | **Outstanding / unverified** | This worktree has no `git remote` configured (`git remote -v` returns nothing). Whether a public GitHub repo exists, what its visibility is, and whether this history has been pushed to it cannot be confirmed from this checkout. Confirm the remote, confirm the repo is public, and push. |
-| README describes the project accurately | Verified, with one addition | `README.md` matches the code: layout table, running-it steps, and the design-notes claims (trust boundary, two bearers, approval gates, concurrency) all check out against `orchestrator/src/*`. Added a short "Status" note (see below) since the existing README otherwise reads as if a healing session has completed, which it hasn't. |
-| Agent runs on TrueForge, judges see genuine harness work | **Partially verified** | Session/turn creation, MCP attachment, skill loading, and model-provider registration are all real calls against the TrueForge SDK (`orchestrator/src/trueforge.ts`, `agent/agent.ts`) and were exercised against a live harness per the commit history (`e3cd589`, `4ca1671`, `5b61428`). No live *agentic run* — an actual investigation and remediation — has completed, because there's no funded model key. The demo will need Plan A in `docs/demo-script.md` to show genuine harness work end to end. |
-| ~3-minute demo video | **Outstanding** | `docs/demo-script.md` is the rehearsable script, timed to 3:00, with an honest Plan A / Plan B split depending on whether a funded Anthropic key is available by recording day. Not yet recorded. |
-| Technical write-up | Done | `docs/technical-writeup.md`. Covers architecture, the MCP remote-only constraint, the tool-name/`preloadTools` silent-failure story, the rate-limit-counted-successes bug, the `turn.done` pause-vs-end story, the trust boundary, the two-bearer split, and an explicit "what is not built" section. |
-| AI-assistant disclosure | Done, pre-existing | `docs/ai-assistance.md` already covers this — which tools, how they were used, and what the authors can explain. Not modified as part of this pass; it was already accurate against the commit history checked here. |
-| No personal API keys or sensitive data in the repo or video | Verified, in this checkout | `.gitignore` blocks `.env`, `*.pem`, `*.key`, `*_token*`, `.data/`, kubeconfigs, and Terraform state. A grep for common key shapes (`sk-ant-`, `xoxb-`, `xapp-`, `ntn_`, `ghp_`, AWS access keys) across tracked file types found two matches, both placeholders: `research/reference-agent-analysis.md:413` (`ANTHROPIC_API_KEY=sk-ant-...`, an illustrative `.env` line) and `orchestrator/test/server.test.ts:168` (`xapp-1-A`, a test fixture). Slack identifiers in the docs were deliberately rewritten to unmistakable placeholder shapes (`C0XXXXXXXXX`, `U0XXXXXXXXX`) per `e1e4a9c`. This check does not extend to the demo video, which doesn't exist yet — re-run a visual check of the recording before publishing it, especially any terminal pane showing `.env` contents or a Grafana/ArgoCD token minted live. |
-| Qodo installed from day one, PR review history visible | **Outstanding / unverified** | No `.github/` directory and no Qodo config file exist in this checkout, and there's no way to confirm from local files whether the Qodo GitHub App is installed on the actual repository or whether any PRs (with Qodo review comments) exist — that lives on GitHub, not in the tree. All 9 commits in this history were made directly (no merge commits, no PR references in commit messages), which suggests work has not yet gone through the PR-per-change flow `PLAN.md` §6 calls for. If the Q Branch / Best Code Quality track matters, this needs the Qodo app installed and at least some of the outstanding work routed through reviewed PRs before submission. |
-| No company names, internal hostnames, or employer data | Verified | `research/reference-agent-analysis.md` is explicitly marked as anonymized, with placeholder identifiers rewritten in `e1e4a9c` specifically to close this gap. The docs written in this pass (`demo-script.md`, `technical-writeup.md`, this file) introduce no new identifiers of that kind. |
-| AI coding assistants disclosed, authors can explain the code | Consistent with `docs/ai-assistance.md` | Every commit in the history carries `Co-Authored-By: Claude Opus 5`, matching the disclosure. |
+| Public source code repository with a functioning README | **Verified** | `github.com/Nitishmane/sre-oncall`, public, 48 commits. `README.md` describes the two agents, the layout, how to run it, and the design notes. |
+| Agent runs on TrueForge, judges see genuine harness work | **Verified end to end** | Not just session creation: a real investigation over MCP tools, correlating an alert to an ArgoCD sync and opening a revert pull request, run against the live kind cluster with a funded provider (`openai/gpt-5-6-terra`). Two agents provisioned, disjoint toolsets, both driven from Slack. |
+| Human approval gates before remediation | **Verified against a live workspace** | Real Block Kit prompts in Slack, decided by a named approver list, written to the audit table before display and claimed atomically. The revert PR's merge is itself the gate for the git path — the agent cannot merge. |
+| ~3-minute demo video | **Outstanding** | `docs/demo-script.md` is rehearsable as written; every beat in it is now a verified capability rather than a plan. Not yet recorded. |
+| Technical write-up | Done | `docs/technical-writeup.md` — architecture, the MCP remote-only constraint, the silent `preloadTools` failure, the `turn.done` pause-vs-end trap, the trust boundary, and an explicit verified/not-verified section. |
+| AI-assistant disclosure | Done | `docs/ai-assistance.md`. Every commit carries `Co-Authored-By: Claude Opus 5`. |
+| No personal API keys or sensitive data in the repo | **Verified** | `.gitignore` blocks `.env`, `*.pem`, `*.key`, `.data/`, kubeconfigs and Terraform state. Key-shaped strings in tracked files are placeholders or test fixtures. Slack identifiers in docs use placeholder shapes. The deployed page holds **zero** environment variables. |
+| Qodo installed, PR review history visible | **Verified** | The Qodo GitHub App reviews pull request diffs; 8 PRs merged, with review comments on the diffs. One Qodo pass found four real defects that were fixed with regression tests before merge (PR #9). |
+| No company names, internal hostnames, or employer data | Verified | Research notes are anonymised and untracked. Nothing added since introduces identifiers of that kind. |
 
-## What's outstanding, in priority order
+## Outstanding, in priority order
 
-1. **Get a funded Anthropic key and complete one real healing session.**
-   Everything else in the demo script depends on this being true before
-   recording; without it, judging criterion 3 (technical excellence and
-   reliability) has nothing live to point at beyond the plumbing.
-2. **Confirm the GitHub repository: public, has a remote, is what gets
-   pushed.** This checkout can't verify any of that.
-3. **Install Qodo and route at least some remaining work through PRs**, if
-   the Best Code Quality track is a goal — the current history is 9 direct
-   commits with no PR trail.
-4. **Record the demo video** using `docs/demo-script.md`.
-5. **Wire up at least one of Slack or the console for real**, so the
-   approval-gate beat in the video is a real human clicking a real button,
-   not a description of one. The console (username/password, no external
-   workspace needed) is the lower-setup-cost option.
-6. **Visually re-check the recorded video** for anything that slipped past
-   the grep check above — a Grafana admin token minted on screen, a
-   `kubectl` output showing a real kubeconfig path, etc.
+1. **Record the demo video** using `docs/demo-script.md`. This is the only
+   required component still missing.
+2. **Check the two fragile prerequisites before recording**: `npm run
+   model-proxy` on :8120 (without it every turn dies on the model call), and the
+   ArgoCD MCP bridge, which has been seen timing out and which the correlation
+   beat depends on.
+3. **Visually re-check the recording** for anything a grep cannot catch — a
+   token minted on screen, a `kubectl` output showing a real kubeconfig path, an
+   editor tab with `.env` open.
+4. **Decide how to state the two known gaps on camera.** Git-backed skills do
+   not install on this host (runbooks come through the `raw-file` MCP server),
+   and approval gates are tool-name-scoped rather than argument-aware. Both are
+   stated on the public explainer. A judge who spots one you did not mention
+   will discount the rest; a judge who hears it from you will not.
+
+## What changed since this file last claimed otherwise
+
+It previously said the repo had no remote, that no healing session had ever
+completed, that there was no funded model key, and that the history was nine
+direct commits with no PR trail. All four are now false. They are recorded here
+rather than quietly deleted, because a checklist that silently rewrites its own
+history is not one whose current entries you can trust.

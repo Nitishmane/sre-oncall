@@ -29,18 +29,20 @@ inject fault ─► demo-service metrics ─► Prometheus ─► Grafana alert 
                                               postmortem ─► Notion
 ```
 
-Grafana runs inside the kind cluster and posts to the orchestrator on the
-host directly — no tunnel on that path. The one tunnel in the system (ngrok,
-or Cloudflare Tunnel as a fallback) is reserved for the chat console and
-terminates at the orchestrator's `/chat` proxy, never at the harness, whose
-local mode has no login of its own.
+Grafana runs inside the kind cluster and posts to the orchestrator on the host
+directly — no tunnel on that path. Nothing is exposed publicly at all: both
+Slack bots connect **outbound** over Socket Mode, so there is no inbound URL,
+and the only deployed artefact is a static explainer page that can invoke
+nothing. The tunnel that used to exist served the chat console, which has since
+been removed.
 
-`orchestrator/` (Express, `node:sqlite`, `@truefoundry/trueforge-sdk`) owns
-the webhook, the admission policy, the concurrency control, the Slack bot,
-and the `/chat` proxy. `agent/agent.ts` is the agent definition: MCP
-attachments, approval policy per attachment, and the model FQN. `skills/` is
-a git-backed runbook pack the harness loads directly. `mcp/` is a set of
-local bridges (see below). `web/` is the Next.js console. `demo-env/` is a
+`orchestrator/` (Express, `node:sqlite`, `@truefoundry/trueforge-sdk`) owns the
+webhook, the admission policy, the concurrency control, and both Slack bots.
+`agent/agent.ts` holds **both agent definitions** — their MCP attachments,
+per-attachment approval policy, and model FQNs. `skills/` is a runbook pack read
+out of git through the `raw-file` MCP server (see the verified/not-verified
+section for why it is not loaded as a harness skill on this host). `mcp/` is a
+set of local bridges (see below). `web/` is the static explainer page. `demo-env/` is a
 kind cluster, a fault-injectable demo service, an ArgoCD Application, and a
 Terraform module for the Grafana alerting config.
 
@@ -243,31 +245,21 @@ middleware, applied twice with two different secrets:
 
 - `GRAFANA_WEBHOOK_BEARER` gates `/webhook/*` — this is the token Grafana's
   contact point presents, local-to-local, no tunnel involved.
-- `TRUEFORGE_BRIDGE_TOKEN` gates `/chat/*`, `/incidents`, and `/approvals` —
-  this is the token the Vercel console's server-side route handler presents,
-  after it has already checked the browser's console session.
+- `TRUEFORGE_BRIDGE_TOKEN` gated `/chat/*`, `/incidents` and `/approvals` for
+  the Vercel console's server-side route handler.
 
-They are unrelated values. A webhook bearer leaked from a Grafana config (a
-lower-value secret, local-to-local) cannot be replayed against the chat
-proxy to start a harness session, and vice versa. The comparison itself uses
-`timingSafeEqual` with an explicit length check first (`timingSafeEqual`
-throws rather than returning `false` on mismatched lengths, which is easy to
-get wrong).
+They were unrelated values, so a webhook bearer leaked from a Grafana config (a
+lower-value secret, local-to-local) could not be replayed against the chat proxy
+to start a harness session, and vice versa. The comparison uses
+`timingSafeEqual` with an explicit length check first — `timingSafeEqual` throws
+rather than returning `false` on mismatched lengths, which is easy to get wrong.
 
-The console side of this has its own boundary worth naming:
-`web/lib/proxy.ts` is the only thing in the browser-facing app that touches
-`TRUEFORGE_BRIDGE_TOKEN`, and it is deliberately narrow — path segments
-containing `..`, a slash, a backslash, or a null byte are refused; the
-composed upstream URL is re-checked against the configured origin and prefix
-*after* parsing (not trusted from string concatenation alone); a non-`http(s)`
-base is refused; and of the incoming request's headers, only `accept`,
-`content-type`, and `accept-language` are forwarded — never the session
-cookie, and never a client-supplied `authorization` header, which would
-otherwise let a browser simply state its own bearer and skip the sign-in
-entirely. This file has its own test suite (`web/test/security.test.ts`)
-separate from the rest of the app specifically because a bug in it leaks a
-credential with full harness access, i.e. the ability to start a session that
-can mutate the cluster.
+**The console has since been removed.** The deployed page is a static explainer
+with no harness connection, no auth and no secrets, so the tunnel,
+`TRUEFORGE_BRIDGE_TOKEN` and the orchestrator's `/chat` proxy now have no
+caller. The webhook bearer remains, and remains the boundary that matters: it is
+what stops anything but Grafana starting a healing session. Removing the orphaned
+chat route is outstanding.
 
 ## One owner per thing
 
@@ -348,52 +340,81 @@ identifiers rather than alert text.
 
 ## Testing
 
-66 automated tests: 56 in `orchestrator/test/` (concurrency, the approval
-audit log's atomic-claim behavior, the alert-to-session pipeline including
-the admission policy, the trust-boundary payload normalization, the HTTP
-server's route wiring, and the Slack event translator including the
-turn-pause case above) and 19 in `web/test/security.test.ts` (the account
-list's fail-closed behavior, scrypt password verification, and the proxy's
-path/header handling). These are unit
-and integration tests against in-memory fakes (`:memory:` SQLite, fake
-harness clients); they do not exercise a live TrueForge harness, a live
-cluster, or a live Slack workspace, though individual pieces of the system
-have been (see the honest status table in `docs/demo-script.md`).
+102 automated tests in `orchestrator/test/`: concurrency, the approval audit
+log's atomic-claim behaviour, the alert-to-session pipeline including the
+admission policy, the trust-boundary payload normalisation, the HTTP server's
+route wiring, the Slack bot-profile configuration, and the event translator —
+including both pause cases, an approval and an `ask_user_question`, which report
+the same `"done"` status as a finished turn and would otherwise strand a thread.
 
-## What is not built, or not verified
+They are unit and integration tests against in-memory fakes (`:memory:` SQLite,
+fake harness clients). They do not exercise a live harness, cluster or Slack
+workspace — that is what the end-to-end verification above covers, and the two
+are deliberately separate: a green suite has never been the evidence that the
+agent can actually fix anything.
+
+The count dropped from 125 when the web console was removed; those 23 tests
+covered the console's auth wall and proxy, which no longer exist.
+
+## What is verified, and what is not
 
 Said plainly, because the alternative is a submission that reads as more
-finished than it is:
+finished than it is — or, now, less.
 
-- **No real healing session has completed.** There is no funded Anthropic
-  API key in this environment. Session and turn *creation* against the
-  harness works (it's a synchronous API call), but the agent has never
-  actually investigated a real alert, proposed a fix, or been approved
-  through a live model call. Every claim above about the pipeline's
-  mechanics is verified; the claim that the agent produces a good
-  investigation is not, because it has not yet been observed doing so.
-- **Slack has never been connected to a real workspace in this project.**
-  The bot code, the Block Kit approval rendering, and the translator are
-  unit-tested against fakes; `docs/slack-setup.md` describes how to wire it
-  up, but that wiring hasn't happened yet.
-- **The Notion, ArgoCD, and n8n MCP bridges are unverified against live
-  services.** The MCP verification pass documented in `mcp/README.md`
-  checked `grafana`, `kubernetes`, and `terraform` against a live harness;
-  it did not check `argocd`, `notion`, `n8n-builder`, or `n8n-tools`, all of
-  which require credentials (`ARGOCD_API_TOKEN`, `NOTION_TOKEN`,
-  `N8N_MCP_AUTH_TOKEN`, `N8N_TOOLS_BEARER`) that aren't set up yet.
-- **The console has not been deployed to Vercel.** It runs locally
-  (`npm run dev:web`, port 3100) with its auth-wall behavior verified there;
-  `CONSOLE_USERS` and the ngrok/Cloudflare tunnel it needs in production are
-  not yet configured.
-- **No GitHub repository is confirmed public with Qodo installed from this
-  checkout.** This worktree has no `git remote` configured, so neither fact
-  can be verified from the code alone — see `docs/submission-checklist.md`.
-- **The n8n workflow-automation capability (standing tools and the
-  agent-built-workflow demo) has no n8n instance running against it yet.**
-  The MCP attachment and its approval-gate policy exist in `agent/agent.ts`;
-  the n8n container and its exported workflows do not.
-- **No PR-based remediation has actually been opened and reviewed.** The
-  GitHub MCP attachment exists and is gated the same as everything else;
-  no fix PR has been generated by a real session, so there's no Qodo review
-  to point at yet either.
+### Verified end to end against live systems
+
+- **The GitOps healing loop.** A bad release breaks a liveness probe; the alert
+  fires; the agent correlates it to the ArgoCD sync and the offending commit,
+  opens a revert pull request carrying its reasoning, a human merges it, ArgoCD
+  syncs, the alert resolves, and the agent posts the resolution summary in the
+  same Slack thread. Run against the real kind cluster with a funded model
+  provider (`openai/gpt-5-6-terra`).
+- **Slack, against a live workspace.** Two separate Slack apps on two Socket
+  Mode connections, each scoped to its own channel, with Block Kit approval
+  gates decided by a named approver list. Both bots connect and are confirmed
+  members of their own channel and non-members of the other's.
+- **The n8n path.** Agent → approval gate → MCP Server Trigger → a workflow that
+  executes inside n8n and returns live instance state. Proven with a server-side
+  timestamp that could only have been produced there, and with a tool that reads
+  the instance's own workflow list.
+- **MCP connectivity across every attached server.** Grafana, Kubernetes,
+  ArgoCD, Terraform, GitHub, Notion, raw-file and both n8n servers attach to a
+  live harness and answer real calls.
+- **The repository is public with PR-per-change and Qodo review history.**
+
+### Known gaps, stated
+
+- **Git-backed skills do not install on this host.** The harness materialises a
+  skill by running its own downloader inside a sandbox whose filesystem policy
+  is `denyRead: ["/"]` plus an allow-list. `xcode-select` resolves
+  `/var/select/developer_dir`, which does not exist on this machine — outside
+  the sandbox that is a harmless `ENOENT` and it falls back; inside it is
+  `EPERM` and fatal, so `git ls-remote` exits 1. Two contributing bugs in the
+  harness were patched locally (a Python 3.10-only kwarg run against a 3.9
+  venv, and an error message truncated to its last 500 characters, which hid
+  the real cause for hours). The third is not worth widening someone else's
+  security policy for.
+
+  So the runbooks are read out of git through the `raw-file` MCP server
+  instead, which needs no sandbox, and the routing tables live in the prompts.
+  The skill definitions are correct and remain in the repo: on a host where the
+  sandbox works, re-attaching them is a one-line change.
+
+- **Approval gates are tool-name-scoped, not argument-aware.** The harness gates
+  on the tool name declared in `requireApprovalForTools`. It has no way to gate
+  on arguments, so several safety rules — "never call `alerting_manage_rules`
+  with `update`", "never `kubectl` a fix into place" — are instructions in the
+  prompt rather than access controls. A model error or a prompt injection could
+  in principle act outside them. This is a property of the design, not an
+  oversight, and it is stated on the public explainer too.
+
+- **The demo cluster is kind, not production.** One service, one namespace,
+  synthetic traffic. The failure modes are real; the scale is not.
+
+- **The ArgoCD MCP bridge has been observed timing out** (30s on
+  streamable-http, `405` on SSE) while the other bridges stayed healthy. It has
+  worked repeatedly; it is not reliably up.
+
+- **Notion postmortem generation is the least-exercised path** of the verified
+  set. The bridge attaches and answers, and the code path runs, but it has had
+  far fewer real executions than the revert-PR flow.
