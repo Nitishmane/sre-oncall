@@ -1,8 +1,8 @@
 import type bolt from "@slack/bolt";
 import type { Store } from "../store.ts";
-import type { PendingApproval } from "./translator.ts";
+import type { PendingApproval, PendingQuestion } from "./translator.ts";
 import type { Surface } from "./surface.ts";
-import { approvalBlocks } from "./blocks.ts";
+import { approvalBlocks, questionBlocks } from "./blocks.ts";
 
 /**
  * A Slack-backed surface for one session's thread.
@@ -59,6 +59,16 @@ export function createSlackSurface(deps: SlackSurfaceDeps): Surface {
         thread_ts: threadTs,
         text: `Approval needed: ${approval.toolLabel}`,
         blocks: approvalBlocks(approval, restricted),
+      });
+      return typeof posted.ts === "string" ? posted.ts : null;
+    },
+
+    async postQuestion(question: PendingQuestion): Promise<string | null> {
+      const posted = await app.client.chat.postMessage({
+        channel,
+        thread_ts: threadTs,
+        text: `The agent needs an answer: ${question.question}`,
+        blocks: questionBlocks(question),
       });
       return typeof posted.ts === "string" ? posted.ts : null;
     },

@@ -62,6 +62,17 @@ services:
       # anyway. Requiring it here would make the container refuse to start
       # before anyone has had a chance to mint one in the n8n UI.
       N8N_API_KEY: ${N8N_API_KEY:-}
+      # Without this every `n8n_*` tool fails with "SSRF protection: Private IP
+      # addresses not allowed" — the builder resolves host.docker.internal to a
+      # private address and refuses it in the default `strict` mode.
+      #
+      # That protection is designed for a multi-tenant service where the target
+      # URL comes from user input and could be pointed at internal
+      # infrastructure. Here the URL is fixed by this file, the only thing it
+      # can reach is the n8n instance beside it, and both are bound to
+      # localhost. The guard is protecting against an input that does not
+      # exist, at the cost of the entire management half of the toolset.
+      WEBHOOK_SECURITY_MODE: permissive
       # MCP auth: the client (TrueForge harness) sends this as Authorization: Bearer.
       # Must be at least 32 characters (generated: openssl rand -hex 32).
       MCP_AUTH_TOKEN: ${N8N_MCP_AUTH_TOKEN:?set N8N_MCP_AUTH_TOKEN in .env}

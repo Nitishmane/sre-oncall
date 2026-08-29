@@ -25,12 +25,20 @@ export function createHarness(config: Config, log: Logger) {
     ...(config.TRUEFORGE_TOKEN ? { token: config.TRUEFORGE_TOKEN } : {}),
   });
 
-  async function startSession(prompt: string, context: Record<string, unknown>): Promise<StartedTurn> {
+  /**
+   * `agentName` defaults to the configured on-call agent, so the alert pipeline
+   * is unchanged. A Slack bot bound to a different agent passes its own.
+   */
+  async function startSession(
+    prompt: string,
+    context: Record<string, unknown>,
+    agentName: string = config.TRUEFORGE_AGENT_NAME,
+  ): Promise<StartedTurn> {
     const session = await client.sessions.create({
-      agent: { name: config.TRUEFORGE_AGENT_NAME },
+      agent: { name: agentName },
     });
     const sessionId = session.data.id;
-    log.info("session created", { ...context, sessionId });
+    log.info("session created", { ...context, sessionId, agent: agentName });
 
     const turn = await client.sessions.createTurn(sessionId, {
       input: [{ type: "user.message", content: prompt }],
@@ -59,6 +67,27 @@ export function createHarness(config: Config, log: Logger) {
       input: [{ type: "user.tool_approval", threadId, toolCallId, approval: decision }],
     });
     log.info("approval submitted", { sessionId, toolCallId, decision: decision.status });
+    return { sessionId, turnId: turn.data.id };
+  }
+
+  /**
+   * Answers an `ask_user_question` the agent stopped on.
+   *
+   * That question is a client-side *tool call*, not a special kind of event, so
+   * this is the exact parallel of `submitApproval` — same thread and tool-call
+   * ids, free text instead of a decision. Sending the answer as an ordinary
+   * `user.message` instead would leave the tool call outstanding forever.
+   */
+  async function submitQuestionAnswer(
+    sessionId: string,
+    threadId: string,
+    toolCallId: string,
+    content: string,
+  ): Promise<StartedTurn> {
+    const turn = await client.sessions.createTurn(sessionId, {
+      input: [{ type: "user.tool_response", threadId, toolCallId, content }],
+    });
+    log.info("question answered", { sessionId, toolCallId });
     return { sessionId, turnId: turn.data.id };
   }
 
@@ -122,7 +151,8 @@ export function createHarness(config: Config, log: Logger) {
   }
 
   return {
-    client, startSession, continueSession, submitApproval, subscribeTurn, findToolCall, health,
+    client, startSession, continueSession, submitApproval, submitQuestionAnswer,
+    subscribeTurn, findToolCall, health,
   };
 }
 

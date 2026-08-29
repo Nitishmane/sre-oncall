@@ -2,36 +2,27 @@
 
 ## Status, stated plainly
 
-This script assumes a working model provider. As of this writing the project has
-**not completed a single real healing session**: there is no funded model-provider
-key in this environment (`OPENAI_API_KEY`, per `SRE_ONCALL_MODEL=openai/gpt-5-6-sol`), so `npm run provision` either skips model-provider
-registration or a turn against the harness fails on the model call itself. The
-orchestrator, the admission policy, the concurrency control, the trust
-boundary, the Slack approval-gate plumbing, and the console's auth wall are all
-built and unit-tested (66 tests across `orchestrator/test/` and `web/test/`),
-and pieces of them have been exercised against a live harness and a live kind
-cluster (see `docs/technical-writeup.md` for exactly what was verified and
-what wasn't). What has **not** been exercised is the model actually
-investigating an alert and proposing a fix, because that costs real API calls
-this environment doesn't have credit for.
+The full script below is recordable as written. The healing loop has been run
+end to end against the live cluster with a funded model provider
+(`SRE_ONCALL_MODEL=openai/gpt-5-6-terra`, routed through `npm run model-proxy`,
+which absorbs the 429s the harness does not retry): a bad release breaks a
+liveness probe, the alert fires, the agent correlates it to the ArgoCD sync and
+the offending commit, opens a revert pull request carrying its reasoning, a
+human merges, ArgoCD syncs, the alert resolves, and the agent posts the
+resolution summary in the same Slack thread.
 
-Two ways to record, in order of preference:
+Two things to be accurate about on camera:
 
-- **Plan A** — get an OpenAI key with credit before recording, run
-  `npm run provision`, and record the full script below as written. Every beat
-  in it becomes true.
-- **Plan B** — record without a working model provider. Beats 1–3 and 6 still
-  work exactly as scripted (webhook, policy, session creation, console auth).
-  Beat 4 (investigation) and 5 (the fix's approval) cannot show a real
-  investigation; narrate over the Slack thread showing the session started and
-  then failing on the model call, and instead demonstrate the approval gate
-  mechanically — trigger one by hand (see "Faking an approval gate" below) so
-  judges see the real Block Kit UI, the real atomic-claim logic, and the real
-  audit log, even though no live agent produced that particular tool call.
+- **Git-backed skills do not install on this host.** The runbooks are read out
+  of git through the `raw-file` MCP server instead. If you show a runbook being
+  consulted, that is the mechanism — do not call it a skill load.
+- **Approval gates are tool-name-scoped.** Several safety rules are prompt
+  instructions rather than access controls. Worth one sentence if the narration
+  touches on safety, because a judge who notices it and was not told will
+  discount everything else.
 
-Do not claim in the recorded narration that a fix was applied and verified if
-Plan B is what got recorded. Say what's real: "the pipeline and the approval
-gate are live; the model call in this recording didn't have credit behind it."
+Do not overstate the scale. It is one service in a kind cluster with synthetic
+traffic. The failure modes are real; the environment is a demo.
 
 ## Pre-flight checklist
 
@@ -54,26 +45,20 @@ you hit record.
       `for s in grafana kubernetes terraform; do curl -s -m 5 http://localhost:8790/api/v1/mcp-servers/$s/tools | jq -r '.data|length'; done`
 - [ ] Agent, MCP servers and skills provisioned:
       `npm run provision` (re-run after any `.env` or `agent/agent.ts` change)
-- [ ] Console up on `:3100` (only needed for the auth-wall beat):
-      `npm run dev:web`, then load `http://localhost:3100` in a browser
-      profile that is signed out of GitHub, or an incognito window
-- [ ] Slack app connected (if using the Slack beat): the bot shows Online in
-      the workspace's member list
+- [ ] Both Slack bots connected: `npm run dev:orchestrator` logs two
+      `slack app connected` lines with distinct `bot` fields. Each bot must be a
+      member of its own channel and **not** the other's, or both answer at once
+- [ ] The explainer page open in a tab if you plan to close on it:
+      https://trueforge-agents.vercel.app
 - [ ] `demo-env/scripts/heal-reset.sh` has been run since the last rehearsal —
       steady state, no fault active
 - [ ] Screen recording area set up: terminal (readable font, ~16pt), Grafana
-      tab, Slack tab or console tab, browser tab for the console sign-in — in
-      the order you'll actually cut to them
-
-## Faking an approval gate (Plan B only)
-
-If there's no live model call to produce one, the approval-gate audit trail
-and Block Kit UI can still be shown honestly as *the real mechanism, exercised
-directly* rather than end-to-end. From a second terminal, use the orchestrator
-SDK the same way `submitApproval` does, or simply point the camera at
-`orchestrator/test/approvals.test.ts` running (`npm test`) while narrating what
-each assertion proves: the atomic claim, the audit-before-display ordering, the
-double-click guard. This is not a substitute for Plan A — say so on camera.
+      tab, Slack tab, GitHub tab for the pull request — in the order you'll
+      actually cut to them
+- [ ] `npm run model-proxy` running on :8120 — without it every turn dies on the
+      model call
+- [ ] ArgoCD MCP bridge answering — it has been seen timing out, and the
+      correlation beat depends on it
 
 ## Timed script
 
@@ -124,19 +109,19 @@ alert's labels."
 
 ### 1:00–1:20 — The session starts (Slack or console)
 
-**Screen:** Slack incident channel, or the console at `localhost:3100`.
+**Screen:** Slack incident channel, threaded under the alert.
 
 **Say:** "The healing session shows up here, threaded, with a status line that
 updates as the agent works."
 
-*(Plan A: show the status line changing — "Running `grafana.query_prometheus`…"
-then "Running `kubernetes.pods_log`…". Plan B: show the session announced, then
-narrate that the model call itself needs a funded key that this environment
-doesn't have, and cut to the next beat.)*
+*(Show the status line changing — "Running `grafana.query_prometheus`…", then
+"Running `kubernetes.pods_log`…", then "Running `argocd.get_application_events`…".
+That sequence is the whole argument: it is the agent choosing tools, not a
+script replaying them.)*
 
 ### 1:20–1:55 — The approval gate
 
-**Screen:** Slack Block Kit message, or the console's approval panel.
+**Screen:** the Slack Block Kit approval message.
 
 **Say:** "Every write anywhere — a Kubernetes patch, an ArgoCD rollback, a
 Terraform apply, a merged PR — is gated. The harness pauses the turn and shows
@@ -173,17 +158,19 @@ it to a Notion database — this is the artifact a real on-call rotation keeps."
 *(If Notion isn't wired up for the recording, say so and show the template
 instead of implying a page appeared.)*
 
-### 2:45–3:00 — The console and the close
+### 2:45–3:00 — The second agent, and the close
 
-**Screen:** `localhost:3100`, signed out, then the sign-in form.
+**Screen:** Slack `#automation-agent` — a mention, the approval prompt naming
+`n8n-tools.list_automations`, the approve click, and the answer landing in the
+thread.
 
-**Say:** "The chat console can start harness sessions on a live cluster, so
-it's never public — a sign-in whose account list fails closed, and the
-browser never sees the tunnel or its token. That's SRE-Oncall: an alert, an
-investigation over real MCP tools, a gated fix, and a written record — built
-on TrueForge."
+**Say:** "There are two agents, not one. This second one builds and runs n8n
+automations — and it shares no tools with the on-call agent, so it cannot reach
+the cluster at all. Same harness, same approval gates, different blast radius.
+That's TrueForge Agents: an alert, an investigation over real MCP tools, a fix a
+human merges, and a written record."
 
-**End card:** repo URL.
+**End card:** https://trueforge-agents.vercel.app and the repo URL.
 
 ## Reset procedure between rehearsals
 
@@ -202,23 +189,24 @@ Restart the orchestrator after clearing `.data/` so it picks up a fresh store.
 Leave the kind cluster, Grafana, and the harness running between takes — only
 the fault and the incident store need resetting.
 
-## What's genuinely demoable right now vs. blocked
+## What is demoable, and what is not
 
 | Beat | Status |
 |---|---|
-| Fault injection → real Kubernetes rollout | Works. Scripted, run repeatedly during development. |
-| Grafana alert firing on the injected fault | Works, assuming `setup-grafana.sh` has applied the Terraform alert rules. |
-| Webhook → orchestrator (bearer check, dedup, trust boundary) | Works and is unit-tested (`orchestrator/test/payload.test.ts`, `filter` tests in `pipeline.test.ts`). |
-| Harness session/turn creation | Works — this is a plain API call and doesn't need model credit to succeed. |
-| Agent actually investigating over MCP tools and proposing a fix | **Blocked.** Needs a funded model-provider key. Never observed completing in this environment. |
-| Approval gate UI + atomic audit log | The mechanism is built and unit-tested (`orchestrator/test/approvals.test.ts`); triggering one from a *real* agent decision is blocked on the same model credit. |
-| Metric recovery → alert auto-resolve → postmortem session | Postmortem session creation only fires once a healing session recorded a `healing_session_id` — which requires a completed healing run. Blocked transitively. |
-| Notion postmortem page | Code path exists (`mcp/README.md` lists the bridge); never verified against a real Notion database in this project. |
-| Slack incident threads + Block Kit approvals | Code and unit tests exist; never verified against a live Slack workspace in this project. |
-| Console auth wall (username/password, proxy) | Verified locally against a production build: unauthenticated requests get 401/redirect, a wrong password and an unknown user are refused identically, and a valid session stops working the moment its account leaves `CONSOLE_USERS`. |
-| ArgoCD / Terraform MCP bridges | Verified reachable from a live harness (`grafana 65 tools, kubernetes 20, terraform 9` per `mcp/README.md`); ArgoCD and Notion bridges were not part of that verification pass. |
+| Fault injection → real Kubernetes rollout | Works. Scripted, run repeatedly. |
+| Grafana alert firing on the injected fault | Works, once `setup-grafana.sh` has applied the Terraform alert rules. |
+| Webhook → orchestrator (bearer check, dedup, trust boundary) | Works, unit-tested (`payload.test.ts`, `pipeline.test.ts`). |
+| Harness session/turn creation | Works. |
+| **Agent investigating over MCP tools and opening a revert PR** | **Verified end to end** against the live cluster with a funded provider. |
+| **Human merges the PR → ArgoCD syncs → alert resolves** | **Verified.** The merge is the approval gate; the agent cannot merge. |
+| **Approval gate UI + atomic audit log** | **Verified** against a live Slack workspace — real Block Kit, real approver-list check, real single-claim guard. |
+| **Two Slack bots, channel-scoped** | **Verified.** Two apps, two Socket Mode connections; each is a member of its own channel and not the other's. |
+| **n8n workflow triggered from an agent through an approval gate** | **Verified.** The workflow executes in n8n and returns live instance state. |
+| Metric recovery → alert auto-resolve → postmortem session | Works; the postmortem path is the least-exercised of the verified set. |
+| Notion postmortem page | The bridge attaches and answers. Fewer real executions than the revert flow — do not lean on it as the closing beat. |
+| MCP bridges | All attach to a live harness and answer. The ArgoCD bridge has been seen timing out; check it in pre-flight. |
+| Git-backed skills | **Do not install on this host.** Runbooks come through the `raw-file` MCP server. Say so if it comes up. |
 
-If Plan A doesn't materialize before the recording deadline, cut the script to
-the beats marked "Works" above, be explicit on camera that the investigation
-step is the part still pending a funded key, and let the approval-gate tests
-carry that judging criterion instead of a live click.
+Record the beats marked verified. If the ArgoCD bridge is down at record time,
+that breaks the correlation step — check it before you start rather than
+discovering it mid-take.

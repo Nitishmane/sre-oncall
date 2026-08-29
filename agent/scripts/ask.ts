@@ -29,15 +29,21 @@ const client = new TrueForge({ baseUrl, ...(token ? { token } : {}) });
 
 const args = process.argv.slice(2);
 const autoApprove = args.includes("--approve");
-const [agentName, prompt] = args.filter((arg) => arg !== "--approve");
+const answerAt = args.indexOf("--answer");
+const answer = answerAt === -1 ? undefined : args[answerAt + 1];
+const positional = args.filter((arg, i) =>
+  arg !== "--approve" && arg !== "--answer" && i !== answerAt + 1);
+const [agentName, prompt] = positional;
 
 if (agentName === undefined || prompt === undefined) {
-  console.error('usage: npm run ask -- <agent> "<prompt>" [--approve]');
+  console.error('usage: npm run ask -- <agent> "<prompt>" [--approve] [--answer "reply"]');
   process.exit(2);
 }
 
-/** An approval the harness is waiting on, recovered from the event stream. */
+/** A pause the harness is waiting on: an approval, or a question. */
 type Pending = {
+  /** Approvals resume with a decision; questions resume with typed text. */
+  kind: "approval" | "question";
   threadId: string;
   toolCallId: string;
   /** Model message that asked for the call — needed to name it after the turn. */
@@ -125,6 +131,7 @@ async function runTurn(
       // stream closes: the model message that requested it is not written until
       // the turn finishes, so any lookup from inside this loop always misses.
       pending = {
+        kind: type.includes("response_required") ? "question" : "approval",
         threadId: String(event["thread_id"] ?? event["threadId"] ?? "main"),
         toolCallId: String(first.id ?? ""),
         sourceEventId: String(first.sourceEventId ?? first.source_event_id ?? ""),
@@ -149,7 +156,11 @@ async function runTurn(
       streamed?.[0] ??
       (await lookupCall(sessionId, pending.sourceEventId, pending.toolCallId));
     pending.label = match ? describeCall(match) : "an unidentified tool";
-    console.log(`  ⏸  APPROVAL GATE — ${pending.label}`);
+    console.log(
+      pending.kind === "question"
+        ? `  ⏸  QUESTION — ${pending.label}`
+        : `  ⏸  APPROVAL GATE — ${pending.label}`,
+    );
   }
   return pending;
 }
@@ -221,10 +232,35 @@ console.log(`agent ${agentName} · session ${sessionId}`);
 let pending = await runTurn(sessionId, [{ type: "user.message", content: prompt }], "initial");
 
 while (pending !== null) {
+  // A question is not an approval: it resumes with text, not a decision.
+  // Without this the CLI silently exits at the agent's first clarifying
+  // question, which is precisely what automation-engineer is built to ask.
+  if (pending.kind === "question") {
+    if (answer === undefined) {
+      console.log(
+        `\nThe agent asked: ${pending.label}\n` +
+          'Re-run with --answer "your reply" to continue, or answer it in Slack.',
+      );
+      break;
+    }
+    console.log(`\n✓ answering: ${answer}`);
+    pending = await runTurn(
+      sessionId,
+      [{
+        type: "user.tool_response",
+        threadId: pending.threadId,
+        toolCallId: pending.toolCallId,
+        content: answer,
+      }],
+      "answered",
+    );
+    continue;
+  }
+
   if (!autoApprove) {
     console.log(
       `\nPaused at an approval gate for ${pending.label}.\n` +
-        "Re-run with --approve to allow it, or approve it in Slack or the console.",
+        "Re-run with --approve to allow it, or approve it in Slack.",
     );
     break;
   }

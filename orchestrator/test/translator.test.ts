@@ -24,6 +24,27 @@ function toolCall(id: string, server: string, name: string, args: string): TrueF
   };
 }
 
+function donePausedOnQuestion(): TrueForgeApi.TurnStreamingEvent {
+  return {
+    type: "turn.done",
+    id: "evt-3",
+    createdAt: "2026-08-25T10:02:00Z",
+    threadId: "main",
+    state: {
+      status: "done",
+      output: null,
+      requiredActions: [{
+        type: "tool.response_required",
+        id: "ra-1",
+        createdAt: "2026-08-25T10:02:00Z",
+        threadId: "main",
+        toolCalls: [{ id: "call-q", sourceEventId: "evt-1" }],
+      }],
+      completedAt: "2026-08-25T10:02:00Z",
+    },
+  } as TrueForgeApi.TurnStreamingEvent;
+}
+
 test("assistant text becomes a status line", () => {
   const t = createTranslator("sess-1");
   const actions = t.handle(modelMessage({ content: "Checking the error rate first.\nThen the pods." }));
@@ -94,6 +115,165 @@ test("tool arguments are truncated rather than flooding the thread", () => {
   if (action?.kind !== "approval") { assert.fail("expected an approval"); return; }
   assert.ok(action.approval.arguments.length < 800);
   assert.match(action.approval.arguments, /more characters/);
+});
+
+/** A system tool call, as the harness emits ask_user_question. */
+function systemCall(id: string, name: string, args: string): TrueForgeApi.ToolCall {
+  return {
+    id,
+    type: "function",
+    function: { name, arguments: args },
+    toolInfo: { type: "truefoundry-system", name },
+  };
+}
+
+test("a question the agent asks is rendered, not swallowed", () => {
+  const t = createTranslator("sess-1");
+  t.handle(modelMessage({
+    toolCalls: [systemCall("call-q", "ask_user_question",
+      '{"question":"Which Slack channel should this post to?","options":["#ops","#alerts"]}')],
+  }));
+
+  const actions = t.handle({
+    type: "tool.response_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:01:00Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-q", sourceEventId: "evt-1" }],
+  });
+
+  assert.equal(actions.length, 1);
+  const [action] = actions;
+  assert.equal(action?.kind, "question");
+  if (action?.kind !== "question") return;
+  assert.equal(action.question.question, "Which Slack channel should this post to?");
+  assert.deepEqual(action.question.options, ["#ops", "#alerts"]);
+  assert.equal(action.question.toolCallId, "call-q");
+});
+
+test("a turn paused on a question is not treated as finished", () => {
+  // Same trap as the approval case: `turn.done` reports status "done" while
+  // waiting, and treating that as the end strands the question unanswered.
+  const t = createTranslator("sess-1");
+  t.handle(modelMessage({
+    toolCalls: [systemCall("call-q", "ask_user_question", '{"question":"Which environment?"}')],
+  }));
+
+  const actions = t.handle(donePausedOnQuestion());
+  assert.equal(actions.some((a) => a.kind === "done"), false, "a pause is not the end of the session");
+  assert.ok(actions.find((a) => a.kind === "question"), "the pending question is prompted from turn.done");
+});
+
+test("a question already prompted mid-stream is not asked again on pause", () => {
+  const t = createTranslator("sess-1");
+  t.handle(modelMessage({
+    toolCalls: [systemCall("call-q", "ask_user_question", '{"question":"Which environment?"}')],
+  }));
+  t.handle({
+    type: "tool.response_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:01:00Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-q", sourceEventId: "evt-1" }],
+  });
+
+  const actions = t.handle(donePausedOnQuestion());
+  assert.equal(actions.filter((a) => a.kind === "question").length, 0, "asked once, not twice");
+});
+
+test("a malformed question payload still reaches a human", () => {
+  const t = createTranslator("sess-1");
+  t.handle(modelMessage({
+    content: "I need to know which environment before I build this.",
+    toolCalls: [systemCall("call-q", "ask_user_question", "not json at all")],
+  }));
+
+  const actions = t.handle({
+    type: "tool.response_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:01:00Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-q", sourceEventId: "evt-1" }],
+  });
+
+  const [action] = actions;
+  assert.equal(action?.kind, "question");
+  if (action?.kind !== "question") return;
+  // Falls back to the agent's own words rather than posting an empty prompt.
+  assert.match(action.question.question, /which environment/i);
+  assert.deepEqual(action.question.options, []);
+});
+
+test("a pause this surface cannot render ends the thread instead of spinning", () => {
+  // Previously returned a status line that never cleared, so the thread looked
+  // busy forever. mcp.auth_required is the live example.
+  const t = createTranslator("sess-1");
+  const actions = t.handle({
+    type: "turn.done",
+    id: "evt-3",
+    createdAt: "2026-08-25T10:02:00Z",
+    threadId: "main",
+    state: {
+      status: "done",
+      output: null,
+      requiredActions: [{
+        type: "mcp.auth_required",
+        id: "ra-9",
+        createdAt: "2026-08-25T10:02:00Z",
+        threadId: "main",
+      }],
+      completedAt: "2026-08-25T10:02:00Z",
+    },
+  } as TrueForgeApi.TurnStreamingEvent);
+
+  const done = actions.find((a) => a.kind === "done");
+  assert.ok(done, "the thread is closed rather than left spinning");
+  if (done?.kind !== "done") return;
+  assert.equal(done.ok, false);
+  assert.match(String(done.detail), /mcp\.auth_required/);
+  const message = actions.find((a) => a.kind === "message");
+  assert.ok(message, "and it says what it was waiting on");
+});
+
+test("an unrenderable pause alongside a live one is named without closing the thread", () => {
+  // The bug this guards: `.some()` saw the approval, returned only the status
+  // line, and the mcp.auth_required blocker stayed invisible behind a spinner.
+  const t = createTranslator("sess-1");
+  t.handle(modelMessage({
+    toolCalls: [toolCall("call-9", "argocd", "rollback_application", "{}")],
+  }));
+  t.handle({
+    type: "tool.approval_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:01:00Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-9", sourceEventId: "evt-1" }],
+  });
+
+  const actions = t.handle({
+    type: "turn.done",
+    id: "evt-3",
+    createdAt: "2026-08-25T10:02:00Z",
+    threadId: "main",
+    state: {
+      status: "done",
+      output: null,
+      requiredActions: [
+        { type: "tool.approval_required", id: "ra-1", createdAt: "2026-08-25T10:02:00Z", threadId: "main", toolCalls: [{ id: "call-9", sourceEventId: "evt-1" }] },
+        { type: "mcp.auth_required", id: "ra-2", createdAt: "2026-08-25T10:02:00Z", threadId: "main" },
+      ],
+      completedAt: "2026-08-25T10:02:00Z",
+    },
+  } as TrueForgeApi.TurnStreamingEvent);
+
+  const message = actions.find((a) => a.kind === "message");
+  assert.ok(message, "the blocker nobody can act on here is named");
+  if (message?.kind === "message") assert.match(message.text, /mcp\.auth_required/);
+  assert.equal(
+    actions.some((a) => a.kind === "done"),
+    false,
+    "but the thread stays open — a human is still mid-decision on the approval",
+  );
 });
 
 test("a finished turn posts the final answer, then marks the session done", () => {

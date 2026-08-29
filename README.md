@@ -1,9 +1,18 @@
-# SRE-Oncall
+# TrueForge Agents
 
-An AI on-call engineer built on the [TrueForge](https://trueforge.dev) agent
-harness. A Grafana alert fires; the agent investigates the live cluster, proposes
-the smallest safe fix, waits for a human to approve it, applies it, verifies that
-the metric actually recovered, and writes the postmortem.
+Two AI agents for platform operations, both running on the
+[TrueForge](https://trueforge.dev) agent harness.
+
+**Oncall** is woken by a Grafana alert. It investigates the live cluster,
+correlates the failure to the deploy that caused it, and opens a revert pull
+request carrying its reasoning. A human reviews and merges — that merge is the
+approval, and the agent never merges its own work.
+
+**Automation-Engineer** turns a spoken requirement into an n8n workflow. It
+shares no tools with the first agent and cannot reach the cluster at all.
+
+*An independent hackathon submission built on TrueFoundry's TrueForge harness —
+not an official TrueFoundry project.*
 
 Built for the WeMakeDevs **Agent Harness** hackathon (Aug 24–30, 2026).
 
@@ -29,34 +38,50 @@ inject fault ─► demo-service metrics ─► Prometheus ─► Grafana alert 
 ```
 
 Grafana runs inside the cluster and posts to the orchestrator on the host, so the
-alert path never leaves the machine. The single ngrok tunnel is reserved for the
-authenticated chat console, and terminates at the orchestrator's `/chat` proxy —
-never at the harness itself, which has no login in local mode.
+alert path never leaves the machine. Nothing is exposed publicly: the Slack bots
+connect outbound over Socket Mode, and the only deployed artefact is a static
+explainer page that can invoke nothing.
 
 ## Status
 
-The orchestrator, the admission policy, the concurrency control, the trust
-boundary, the approval-gate audit log, and the console's auth wall are built
-and covered by 66 automated tests, and pieces of them have been exercised
-against a live TrueForge harness and a live kind cluster. What hasn't
-happened yet: a real healing session, start to finish, with the agent
-actually investigating an alert and proposing a fix — that needs a funded
-model-provider key, which this environment doesn't have. See
-`docs/technical-writeup.md` for exactly what's verified and what isn't, and
-`docs/demo-script.md` for how the demo handles that honestly if it's still
-true on recording day.
+**Verified end to end against a live harness and a live kind cluster:**
+
+- the GitOps healing loop — a bad release breaks a liveness probe, the alert
+  fires, the agent correlates it to the ArgoCD sync and the offending commit,
+  opens a revert pull request carrying its reasoning, a human merges, ArgoCD
+  syncs, the alert resolves, and the agent posts the summary in the same Slack
+  thread
+- both Slack bots, as two separate apps on two Socket Mode connections, each
+  scoped to its own channel, with Block Kit approval gates decided by a named
+  approver list
+- the n8n path: agent → approval gate → MCP Server Trigger → a workflow that
+  actually executes and returns live instance state
+- MCP connectivity across Grafana, Kubernetes, ArgoCD, Terraform, GitHub,
+  Notion and both n8n servers
+
+102 automated tests cover the admission policy, concurrency control, the trust
+boundary, the approval audit log's atomic-claim behaviour, and the event
+translator.
+
+**Known gap:** git-backed skills do not install on this host — the harness
+materialises them inside a sandbox whose filesystem policy denies a path
+`xcode-select` needs. Rather than pretend otherwise, the runbooks are read out
+of git through the `raw-file` MCP server and the routing tables live in the
+prompts. The skill definitions are correct and stay in the repo; on a host where
+the sandbox works, re-attaching them is a one-line change.
+
+`web/index.html` states the full real-versus-scaffolding split.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `orchestrator/` | The webhook receiver and session broker. Verifies alerts, applies admission policy, starts harness sessions, runs the Slack bot, proxies the chat console. |
+| `orchestrator/` | The webhook receiver and session broker. Verifies alerts, applies admission policy, starts harness sessions, and runs both Slack bots. |
 | `agent/` | Both agent definitions — SRE-Oncall and Automation-Engineer: system prompts, MCP attachments, approval policy, and an idempotent provisioning script. |
 | `skills/sre-runbooks/` | Runbooks per failure signature, plus the triage-report, postmortem and handoff formats. Loaded by the harness as a git-backed skill. |
 | `mcp/` | Local stdio→HTTP bridges for the MCP servers the harness can only reach over a URL. |
 | `demo-env/` | kind cluster, the fault-injectable demo service, the ArgoCD application, the Terraform-managed alerting config, and the inject/reset scripts. |
-| `web/` | The console: Next.js on Vercel, username/password accounts, and a server-side proxy so the browser never sees the tunnel or its token. |
-| `index.html` | The public architecture explainer. Static, and deliberately unable to invoke anything. |
+| `web/` | The public explainer page deployed to Vercel: which agent runs on what, which tools, where the gates are. Static, no build step, no secrets, and deliberately unable to invoke anything. |
 
 ## Running it
 
@@ -164,10 +189,17 @@ caps concurrent sessions. Repeat alerts are dropped by a per-incident cooldown,
 and an hourly limit bounds the worst case. Flap-prone rules are held briefly and
 dropped silently if they self-resolve.
 
-**The console is not public.** It can start harness sessions, so it sits behind
-a sign-in whose account list fails closed, and reaches the harness only
-through a server-side proxy holding a bearer the browser never sees. The tunnel
-terminates at the orchestrator, never at the harness. See `web/README.md`.
+**Two Slack bots, two agents.** SRE-Oncall and Automation-Agent are separate
+Slack apps with separate identities, each routing to its own agent. The on-call
+bot owns the incident channel and hears about alerts; the automation bot lives
+in its own channel, runs n8n workflows on request, and has no cluster access at
+all. `app_mention` fires in any channel a bot is in, so each bot has an optional
+channel allow-list — otherwise two bots in one room both answer. See
+`docs/slack-setup.md`.
+
+**Nothing is publicly reachable.** The deployed page is static and holds no
+credentials. Both Slack bots connect outbound over Socket Mode, so there is no
+inbound URL to attack, and every vendor token stays in a local `.env`.
 
 **One owner per thing.** ArgoCD owns the workload, Terraform owns the Grafana
 alerting config, and nothing owns both. That is what makes each of the agent's

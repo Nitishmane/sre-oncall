@@ -210,3 +210,31 @@ export function incidentBlocks(params: {
     },
   ];
 }
+
+/**
+ * The agent has stopped to ask something.
+ *
+ * Deliberately not buttons-only: the options the agent offers are suggestions,
+ * not an exhaustive list, and a question worth asking usually has an answer
+ * worth typing. The context line says so, because an unanswered question is a
+ * thread that waits forever.
+ */
+export function questionBlocks(question: { question: string; options: string[] }): KnownBlock[] {
+  const blocks: KnownBlock[] = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*The agent needs an answer*\n${question.question}` },
+    },
+  ];
+  if (question.options.length > 0) {
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `Suggested: ${question.options.map((o) => `\`${o}\``).join(" · ")}` }],
+    });
+  }
+  blocks.push({
+    type: "context",
+    elements: [{ type: "mrkdwn", text: "Reply in this thread to answer." }],
+  });
+  return blocks;
+}

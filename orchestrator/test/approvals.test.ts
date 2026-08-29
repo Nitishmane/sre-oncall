@@ -6,13 +6,14 @@ import { createLogger } from "../src/logger.ts";
 import { createFollower } from "../src/slack/watcher.ts";
 import { decodeRef, encodeRef } from "../src/slack/blocks.ts";
 import type { Surface } from "../src/slack/surface.ts";
-import type { PendingApproval } from "../src/slack/translator.ts";
+import type { PendingApproval, PendingQuestion } from "../src/slack/translator.ts";
 
 const silent = createLogger("error");
 
 function recordingSurface() {
   const calls: string[] = [];
   const approvals: PendingApproval[] = [];
+  const questions: PendingQuestion[] = [];
   const surface: Surface = {
     setStatus: async (text) => { calls.push(`status:${text}`); },
     post: async (text) => { calls.push(`post:${text}`); },
@@ -21,9 +22,14 @@ function recordingSurface() {
       calls.push(`approval:${approval.toolLabel}`);
       return "1735000000.000100";
     },
+    postQuestion: async (question) => {
+      questions.push(question);
+      calls.push(`question:${question.question}`);
+      return "1735000000.000200";
+    },
     finish: async (ok) => { calls.push(`finish:${ok}`); },
   };
-  return { surface, calls, approvals };
+  return { surface, calls, approvals, questions };
 }
 
 async function* streamOf(...events: TrueForgeApi.TurnStreamingEvent[]) {
@@ -53,6 +59,30 @@ const approvalTurn: TrueForgeApi.TurnStreamingEvent[] = [
   },
 ];
 
+test("a question whose answer could not be submitted is reopened, not lost", () => {
+  // The claim must be taken before the remote call or two replies race. But a
+  // claim that is never released strands the thread: the tool call stays
+  // pending on the harness while every later reply looks like a follow-up.
+  const store = openStore(":memory:");
+  store.bindSlackThread("sess-1", "C1", "1735000000.000100", null, 1_000_000);
+  store.recordQuestion({
+    sessionId: "sess-1", threadId: "main", toolCallId: "call-q",
+    question: "Which environment?", channel: "C1", threadTs: "1735000000.000100",
+  }, 1_000_000);
+
+  assert.ok(store.openQuestionForThread("C1", "1735000000.000100"), "starts open");
+  assert.equal(store.markQuestionAnswered("sess-1", "call-q", 1_000_001), true, "claimed once");
+  assert.equal(store.markQuestionAnswered("sess-1", "call-q", 1_000_002), false, "not twice");
+  assert.equal(store.openQuestionForThread("C1", "1735000000.000100"), undefined, "claimed");
+
+  // Submitting failed, so the claim goes back.
+  store.reopenQuestion("sess-1", "call-q");
+  const reopened = store.openQuestionForThread("C1", "1735000000.000100");
+  assert.ok(reopened, "the next reply can answer it again");
+  assert.equal(reopened?.tool_call_id, "call-q");
+  store.close();
+});
+
 test("an approval request is written to the audit log before it is shown", async () => {
   const store = openStore(":memory:");
   const { surface } = recordingSurface();
@@ -74,6 +104,7 @@ test("the audit log survives a surface that cannot post", async () => {
     setStatus: async () => {},
     post: async () => {},
     postApproval: async () => { throw new Error("slack is down"); },
+    postQuestion: async () => { throw new Error("slack is down"); },
     finish: async () => {},
   };
   const follower = createFollower("sess-1", broken, { log: silent, store, now: () => 1_000_000 });

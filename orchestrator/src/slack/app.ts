@@ -1,5 +1,5 @@
 import bolt from "@slack/bolt";
-import type { Config } from "../config.ts";
+import type { Config, SlackBotProfile } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { Store } from "../store.ts";
 import type { Harness } from "../trueforge.ts";
@@ -30,16 +30,14 @@ export interface SlackDeps {
   log: Logger;
   store: Store;
   harness: Harness;
+  /** Which bot this instance is: tokens, agent, channels, approvers. */
+  bot: SlackBotProfile;
 }
 
-export function createSlackApp({ config, log, store, harness }: SlackDeps) {
-  if (config.SLACK_BOT_TOKEN === undefined || config.SLACK_APP_TOKEN === undefined) {
-    throw new Error("createSlackApp requires SLACK_BOT_TOKEN and SLACK_APP_TOKEN");
-  }
-
+export function createSlackApp({ config, log, store, harness, bot }: SlackDeps) {
   const app = new App({
-    token: config.SLACK_BOT_TOKEN,
-    appToken: config.SLACK_APP_TOKEN,
+    token: bot.botToken,
+    appToken: bot.appToken,
     socketMode: true,
     logLevel: config.LOG_LEVEL === "debug" ? LogLevel.DEBUG : LogLevel.WARN,
   });
@@ -49,7 +47,22 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
   const threads = createKeyedQueue();
   /** Live followers, so an approval resume can be rendered into the same thread. */
   const followers = new Map<string, Follower>();
-  const approvers = new Set(config.SLACK_APPROVER_IDS);
+  const approvers = new Set(bot.approvers);
+  /**
+   * Channels this bot answers mentions in. Empty means anywhere, which is what
+   * the on-call bot has always done. A second bot in the same workspace sets it
+   * so the two do not both answer in one room.
+   */
+  const servedChannels = new Set(bot.channels);
+
+  /**
+   * DMs are deliberately exempt. A DM channel id is never in the allow-list, so
+   * checking it there would make the bot unreachable in private — which is the
+   * obvious way to get this wrong.
+   */
+  function serves(channel: string): boolean {
+    return servedChannels.size === 0 || servedChannels.has(channel);
+  }
   const restricted = approvers.size > 0;
 
   function mayApprove(userId: string): boolean {
@@ -95,7 +108,7 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     fingerprint: string;
     kind: "healing" | "postmortem" | "handoff";
   }): Promise<void> {
-    const channel = config.SLACK_INCIDENT_CHANNEL;
+    const channel = bot.incidentChannel;
     if (channel === undefined) return;
     try {
       // One incident, one thread. An alert produces several sessions over its
@@ -186,6 +199,36 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
     if (question === "") return;
 
     await threads.enqueue(`${channel}:${threadTs}`, async () => {
+      // A thread waiting on `ask_user_question` must be answered as a tool
+      // response, not as a new message. Sent as a message the agent's pending
+      // tool call is never satisfied and the turn waits forever, so this branch
+      // has to come first.
+      const pending = store.openQuestionForThread(channel, threadTs);
+      if (pending !== undefined) {
+        if (store.markQuestionAnswered(pending.session_id, pending.tool_call_id, Date.now())) {
+          const follower = attach(pending.session_id, channel, threadTs);
+          try {
+            const turn = await harness.submitQuestionAnswer(
+              pending.session_id, pending.thread_id, pending.tool_call_id, question,
+            );
+            follower.follow(harness.subscribeTurn(turn.sessionId, turn.turnId));
+          } catch (err) {
+            // The claim was taken before the remote call, so it has to be given
+            // back — otherwise the tool call stays pending on the harness
+            // forever while every later reply looks like a follow-up.
+            store.reopenQuestion(pending.session_id, pending.tool_call_id);
+            log.error("could not submit the answer; question reopened", {
+              sessionId: pending.session_id,
+              toolCallId: pending.tool_call_id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
+          return;
+        }
+        // Someone else answered first; fall through and treat it as a follow-up.
+      }
+
       const existing = store.slackSessionForThread(channel, threadTs);
       if (existing) {
         // Follow-up in a thread we already own: resume that session.
@@ -194,13 +237,24 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
         follower.follow(harness.subscribeTurn(turn.sessionId, turn.turnId));
         return;
       }
-      const started = await harness.startSession(question, { kind: "chat", channel });
+      const started = await harness.startSession(
+        question,
+        { kind: "chat", channel, bot: bot.name },
+        bot.agentName,
+      );
       const follower = attach(started.sessionId, channel, threadTs);
       follower.follow(harness.subscribeTurn(started.sessionId, started.turnId));
     });
   }
 
   app.event("app_mention", async ({ event }) => {
+    if (!serves(event.channel)) {
+      log.debug("ignoring a mention outside this bot's channels", {
+        bot: bot.name,
+        channel: event.channel,
+      });
+      return;
+    }
     const threadTs = event.thread_ts ?? event.ts;
     await handleQuestion(event.channel, threadTs, event.text ?? "");
   });
@@ -292,7 +346,10 @@ export function createSlackApp({ config, log, store, harness }: SlackDeps) {
   async function start(): Promise<void> {
     await app.start();
     log.info("slack app connected", {
-      incidentChannel: config.SLACK_INCIDENT_CHANNEL ?? "(none)",
+      bot: bot.name,
+      agent: bot.agentName,
+      channels: servedChannels.size === 0 ? "(any)" : [...servedChannels].join(","),
+      incidentChannel: bot.incidentChannel ?? "(none)",
       approvers: restricted ? approvers.size : "unrestricted",
     });
     if (!restricted) {

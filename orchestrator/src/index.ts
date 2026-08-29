@@ -13,11 +13,18 @@ const log = createLogger(config.LOG_LEVEL);
 const store = openStore(join(config.DATA_DIR, "incidents.db"));
 const harness = createHarness(config, log);
 
-// Slack is optional: without both tokens the alert pipeline still runs headless,
-// and approvals are decided through the console instead.
-let slack: SlackApp | null = null;
+// Slack is optional: without a complete token pair the alert pipeline still runs
+// headless, and approvals are decided through the console instead.
+//
+// There can be more than one bot — the on-call bot and the automation bot are
+// separate Slack apps with separate identities. Only the bot that owns an
+// incident channel hears about alerts; announcing them in the automation room
+// would be noise nobody acts on.
+const bots: SlackApp[] = [];
+let incidentBot: SlackApp | null = null;
+
 const onSessionStarted: SessionListener = (started) => {
-  void slack?.announceIncident(started);
+  void incidentBot?.announceIncident(started);
 };
 
 const onIncidentResolved = (params: {
@@ -25,7 +32,7 @@ const onIncidentResolved = (params: {
   ruleName: string;
   resolvedAt: Date;
 }) => {
-  void slack?.markIncidentResolved(params);
+  void incidentBot?.markIncidentResolved(params);
 };
 
 const pipeline = createPipeline({
@@ -40,18 +47,28 @@ const server = app.listen(config.PORT, () => {
     agent: config.TRUEFORGE_AGENT_NAME,
     maxConcurrent: config.MAX_CONCURRENT_SESSIONS,
     slack: config.slackEnabled,
+    // Name each bot and the agent it drives: a misrouted bot is otherwise
+    // invisible until someone posts in the wrong channel.
+    slackBots: config.slackBots.map((bot) => `${bot.name}->${bot.agentName}`),
   });
 });
 
-if (config.slackEnabled) {
-  slack = createSlackApp({ config, log, store, harness });
-  slack.start().catch((err: unknown) => {
-    log.error("slack app failed to start", {
-      error: err instanceof Error ? err.message : String(err),
+if (config.slackBots.length > 0) {
+  for (const profile of config.slackBots) {
+    const bot = createSlackApp({ config, log, store, harness, bot: profile });
+    bots.push(bot);
+    if (profile.incidentChannel !== undefined) incidentBot = bot;
+    // Started independently: a bad token on the automation app must not stop
+    // the on-call bot from connecting.
+    bot.start().catch((err: unknown) => {
+      log.error("slack app failed to start", {
+        bot: profile.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
-  });
+  }
 } else {
-  log.info("slack disabled (SLACK_BOT_TOKEN / SLACK_APP_TOKEN not set)");
+  log.info("slack disabled (no complete bot token pair configured)");
 }
 
 // Handoffs are optional: without an interval, POST /handoff is still there
@@ -67,9 +84,9 @@ if (config.HANDOFF_INTERVAL_HOURS !== undefined) {
 function shutdown(signal: string) {
   log.info("shutting down", { signal });
   scheduler?.stop();
-  void slack?.stop().catch(() => {
-    // Already disconnected; nothing to do.
-  });
+  // allSettled, not all: a bot that never connected rejects on stop(), and
+  // Promise.all would then skip stopping the one that did.
+  void Promise.allSettled(bots.map((bot) => bot.stop()));
   server.close(() => {
     store.close();
     process.exit(0);
