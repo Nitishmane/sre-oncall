@@ -310,15 +310,34 @@ export const mcpServers: McpDefinition[] = [
       name: "n8n-tools",
       type: "remote",
       description:
-        "Standing on-call automations exposed as tools: notify-oncall, create-incident-ticket, escalate-incident.",
+        "Runnable automations in this n8n instance, exposed as tools: look up people in the " +
+        "employee directory, list the workflows the instance holds, and self-test the path. " +
+        "All three read; none of them notify anyone or change anything.",
       url: env("MCP_N8N_TOOLS_URL") || "http://127.0.0.1:5678/mcp/sre-oncall",
       auth: headerAuth({ Authorization: `Bearer ${env("N8N_TOOLS_BEARER")}` }),
     },
     attachment: {
       name: "n8n-tools",
       enableTools: ["@all"],
-      // Every one of these pages a human.
-      requireApprovalForTools: ["@all"],
+      // This hub used to expose notify-oncall, create-incident-ticket and
+      // escalate-incident, and `@all` was right for it: every one of those
+      // paged a human. The hub was rebuilt around three reads and the gate was
+      // not, so the agent needed a click to answer a *question* — approval
+      // fatigue on exactly the calls that deserve none, which teaches a
+      // reviewer to approve without reading and devalues the gates that matter.
+      //
+      // Nothing here writes, so nothing here is gated. If a tool that reaches a
+      // person is ever added back to this workflow, name it here — per the
+      // repo convention, by name and not by `@write`, which classifies on
+      // tool-name shape and would gate the reads all over again.
+      requireApprovalForTools: [],
+      // The description alone is what the agent has to decide whether to look
+      // in here at all, and while it was stale the agent answered "I can't
+      // access an employee directory" without ever listing the server. Preload
+      // makes the three visible up front. Names verified against a live
+      // tools/list on 2026-08-29 — an entry the server does not expose is
+      // silently dropped.
+      preloadTools: ["employee_directory", "list_automations", "harness_selftest"],
     },
     requiresEnv: ["N8N_TOOLS_BEARER"],
   },
