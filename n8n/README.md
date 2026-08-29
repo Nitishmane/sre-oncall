@@ -153,7 +153,9 @@ works before anyone has minted a key.
 
 ## Verifying the MCP Server Trigger Tools
 
-The three standing workflows (notify-oncall, create-incident-ticket, escalate-incident) expose their tools at:
+The `automation-tools` workflow is the MCP hub — it is what exposes tools at
+the path below. (The three older standing workflows expose nothing; see the
+warning further down.)
 
 ```
 http://127.0.0.1:5678/mcp/sre-oncall
