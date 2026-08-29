@@ -235,6 +235,47 @@ test("a pause this surface cannot render ends the thread instead of spinning", (
   assert.ok(message, "and it says what it was waiting on");
 });
 
+test("an unrenderable pause alongside a live one is named without closing the thread", () => {
+  // The bug this guards: `.some()` saw the approval, returned only the status
+  // line, and the mcp.auth_required blocker stayed invisible behind a spinner.
+  const t = createTranslator("sess-1");
+  t.handle(modelMessage({
+    toolCalls: [toolCall("call-9", "argocd", "rollback_application", "{}")],
+  }));
+  t.handle({
+    type: "tool.approval_required",
+    id: "evt-2",
+    createdAt: "2026-08-25T10:01:00Z",
+    threadId: "main",
+    toolCalls: [{ id: "call-9", sourceEventId: "evt-1" }],
+  });
+
+  const actions = t.handle({
+    type: "turn.done",
+    id: "evt-3",
+    createdAt: "2026-08-25T10:02:00Z",
+    threadId: "main",
+    state: {
+      status: "done",
+      output: null,
+      requiredActions: [
+        { type: "tool.approval_required", id: "ra-1", createdAt: "2026-08-25T10:02:00Z", threadId: "main", toolCalls: [{ id: "call-9", sourceEventId: "evt-1" }] },
+        { type: "mcp.auth_required", id: "ra-2", createdAt: "2026-08-25T10:02:00Z", threadId: "main" },
+      ],
+      completedAt: "2026-08-25T10:02:00Z",
+    },
+  } as TrueForgeApi.TurnStreamingEvent);
+
+  const message = actions.find((a) => a.kind === "message");
+  assert.ok(message, "the blocker nobody can act on here is named");
+  if (message?.kind === "message") assert.match(message.text, /mcp\.auth_required/);
+  assert.equal(
+    actions.some((a) => a.kind === "done"),
+    false,
+    "but the thread stays open — a human is still mid-decision on the approval",
+  );
+});
+
 test("a finished turn posts the final answer, then marks the session done", () => {
   const t = createTranslator("sess-1");
   t.handle(modelMessage({ content: "IMPACT\n  demo-service is returning 5xx." }));

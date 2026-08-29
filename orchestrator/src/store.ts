@@ -209,6 +209,9 @@ export function openStore(path: string) {
     WHERE channel = ? AND thread_ts = ? AND answered_at IS NULL
     ORDER BY id DESC LIMIT 1
   `);
+  const reopenQuestion = db.prepare(
+    "UPDATE pending_questions SET answered_at = NULL WHERE session_id = ? AND tool_call_id = ?",
+  );
   const answerQuestion = db.prepare(
     "UPDATE pending_questions SET answered_at = ? WHERE session_id = ? AND tool_call_id = ? AND answered_at IS NULL",
   );
@@ -355,6 +358,17 @@ export function openStore(path: string) {
     /** False when it was already answered — the guard against a double reply. */
     markQuestionAnswered(sessionId: string, toolCallId: string, now: number): boolean {
       return answerQuestion.run(now, sessionId, toolCallId).changes > 0;
+    },
+    /**
+     * Puts a question back if submitting the answer failed.
+     *
+     * The claim has to happen before the remote call, or two replies race. But
+     * a claim that is never released strands the thread forever: the tool call
+     * stays pending on the harness while every later reply is treated as an
+     * ordinary follow-up.
+     */
+    reopenQuestion(sessionId: string, toolCallId: string): void {
+      reopenQuestion.run(sessionId, toolCallId);
     },
 
     recordApprovalRequest(request: {

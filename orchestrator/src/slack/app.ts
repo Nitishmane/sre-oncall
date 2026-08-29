@@ -207,10 +207,23 @@ export function createSlackApp({ config, log, store, harness, bot }: SlackDeps) 
       if (pending !== undefined) {
         if (store.markQuestionAnswered(pending.session_id, pending.tool_call_id, Date.now())) {
           const follower = attach(pending.session_id, channel, threadTs);
-          const turn = await harness.submitQuestionAnswer(
-            pending.session_id, pending.thread_id, pending.tool_call_id, question,
-          );
-          follower.follow(harness.subscribeTurn(turn.sessionId, turn.turnId));
+          try {
+            const turn = await harness.submitQuestionAnswer(
+              pending.session_id, pending.thread_id, pending.tool_call_id, question,
+            );
+            follower.follow(harness.subscribeTurn(turn.sessionId, turn.turnId));
+          } catch (err) {
+            // The claim was taken before the remote call, so it has to be given
+            // back — otherwise the tool call stays pending on the harness
+            // forever while every later reply looks like a follow-up.
+            store.reopenQuestion(pending.session_id, pending.tool_call_id);
+            log.error("could not submit the answer; question reopened", {
+              sessionId: pending.session_id,
+              toolCallId: pending.tool_call_id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
           return;
         }
         // Someone else answered first; fall through and treat it as a follow-up.

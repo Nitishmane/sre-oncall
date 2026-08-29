@@ -234,25 +234,39 @@ export function createTranslator(sessionId: string) {
 
             // No new prompt to post. Two very different reasons for that, and
             // conflating them either strands a thread or closes a live one.
-            if (state.requiredActions.some((action) => RENDERABLE_PAUSES.has(action.type))) {
+            //
+            // They can also be true at once — an approval already showing its
+            // buttons alongside an `mcp.auth_required` nobody can act on here.
+            // Reporting only the first leaves the real blocker invisible behind
+            // a spinner that never clears, which is the bug this branch exists
+            // to prevent in the first place.
+            const blocked = [...new Set(
+              state.requiredActions
+                .filter((action) => !RENDERABLE_PAUSES.has(action.type))
+                .map((action) => action.type),
+            )];
+            const stillWaiting = state.requiredActions.some(
+              (action) => RENDERABLE_PAUSES.has(action.type),
+            );
+
+            if (blocked.length === 0) {
               // Already prompted mid-stream; a human is looking at the buttons.
               return [{ kind: "status", text: "Waiting on a pending action…" }];
             }
 
-            // The turn is waiting on something this surface cannot render —
-            // `mcp.auth_required` today, and whatever the harness adds next.
-            // A status line would sit there forever looking like progress, so
-            // end the thread with what it is waiting on. A legible failure
-            // beats an indefinite spinner.
-            const kinds = [...new Set(state.requiredActions.map((action) => action.type))].join(", ");
-            return [
-              {
-                kind: "message",
-                text: `This session is paused on something I can't show here (${kinds}). ` +
-                  "Continue it in the TrueForge console.",
-              },
-              { kind: "done", ok: false, detail: `unrenderable pause: ${kinds}` },
-            ];
+            const kinds = blocked.join(", ");
+            const note: SurfaceAction = {
+              kind: "message",
+              text: `This session is paused on something I can't show here (${kinds}). ` +
+                "Continue it in the TrueForge console.",
+            };
+
+            // Something renderable still outstanding means the thread is alive:
+            // name the extra blocker, but do not close it out from under a
+            // human who is mid-decision.
+            return stillWaiting
+              ? [note, { kind: "status", text: "Waiting on a pending action…" }]
+              : [note, { kind: "done", ok: false, detail: `unrenderable pause: ${kinds}` }];
           }
 
           const finalText = textOf(state.output?.content).trim() || lastText;

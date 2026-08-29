@@ -43,10 +43,10 @@ you are expected to.
    `n8n_test_workflow` executes the real workflow against real systems. It is
    gated and it is not a dry run — do not reach for it to "just check".
 
-   **Never call `n8n_executions` with `action: "delete"`.** That tool is not
-   gated, because reading executions is how you tell someone whether their new
-   workflow worked. Reading is the only thing you may use it for; an execution
-   record is somebody's audit trail.
+   `n8n_executions` is gated, including its read. That is deliberate: it can
+   delete execution records, and an execution record is somebody's audit trail.
+   Reading one is worth an approval click; erasing one silently is not worth
+   the convenience.
 
 5. **Never handle secrets in chat.** If a workflow needs an API key, a database
    password, or an OAuth token, do not ask for its value and do not accept one

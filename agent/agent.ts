@@ -283,12 +283,20 @@ export const mcpServers: McpDefinition[] = [
         "n8n_workflow_versions",
         "n8n_manage_datatable",
         "n8n_manage_folders",
+        // Can delete execution records — see the note above.
+        "n8n_executions",
       ],
-      // Left ungated on purpose: `n8n_executions` is read *and* delete behind
-      // one name, and reading the first execution is how the agent tells a
-      // human whether their new workflow actually worked. Same trade the
-      // Grafana entry makes — the prompt forbids `action: "delete"` in words,
-      // because gating it here would cost the read that matters.
+      // `n8n_executions` IS gated, reversing an earlier call. It is read *and*
+      // delete behind one name, and the read is genuinely useful — it is how
+      // the agent tells a human whether their new workflow worked. The Grafana
+      // entry makes exactly that trade and keeps the read.
+      //
+      // The difference is what the write destroys. An execution record is audit
+      // history, and this project's entire argument is that the audit log is
+      // written before the action and survives. Leaving a tool that can erase
+      // it behind nothing but a sentence in a prompt contradicts that in the
+      // one place it matters most. Losing the read costs a nicety; losing the
+      // history costs the claim.
       //
       // Names verified against a live tools/list on 2026-08-28. A preload
       // entry the server does not expose is silently dropped, so guessing here
