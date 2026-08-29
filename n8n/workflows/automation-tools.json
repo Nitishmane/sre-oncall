@@ -1,5 +1,5 @@
 {
-  "name": "harness-selftest",
+  "name": "automation-tools",
   "nodes": [
     {
       "id": "trigger-0001",
@@ -34,10 +34,48 @@
         "language": "javaScript",
         "jsCode": "const received = String(query ?? '');\nreturn JSON.stringify({\n  ok: true,\n  tool: 'harness_selftest',\n  echo: received,\n  ran_at: new Date().toISOString(),\n  note: 'Executed inside n8n. Reading this means harness -> MCP -> n8n works end to end.'\n});"
       }
+    },
+    {
+      "id": "tool-list",
+      "name": "list_automations",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        200
+      ],
+      "parameters": {
+        "description": "List the automations in this n8n instance: name, whether it is active, and what triggers it. Use this to answer \"what can you run?\" and to disambiguate before running anything.",
+        "workflowId": {
+          "__rl": true,
+          "value": "UmqCA8GcE1wEks4e",
+          "mode": "list",
+          "cachedResultName": "automation: list-automations"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
     }
   ],
   "connections": {
     "harness_selftest": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "list_automations": {
       "ai_tool": [
         [
           {

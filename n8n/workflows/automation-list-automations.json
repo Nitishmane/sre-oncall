@@ -1,0 +1,89 @@
+{
+  "name": "automation: list-automations",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "h1",
+      "name": "Read workflows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "url": "http://host.docker.internal:5678/api/v1/workflows",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "200"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "n8n self API"
+        }
+      }
+    },
+    {
+      "id": "c1",
+      "name": "Summarise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// One row per workflow: what it is called, whether it is live, and what\n// starts it. This is the answer to \"what can you run?\" from live state\n// rather than from a hardcoded list that drifts.\nconst body = $input.first().json;\nconst items = body.data ?? [];\nconst rows = items.map((w) => ({\n  name: w.name,\n  active: w.active === true,\n  id: w.id,\n  triggers: (w.nodes ?? []).filter((n) => /trigger/i.test(n.type)).map((n) => n.name),\n}));\nreturn [{ json: { count: rows.length, active: rows.filter((r) => r.active).length, workflows: rows } }];"
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read workflows": {
+      "main": [
+        [
+          {
+            "node": "Summarise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

@@ -164,6 +164,14 @@ caps concurrent sessions. Repeat alerts are dropped by a per-incident cooldown,
 and an hourly limit bounds the worst case. Flap-prone rules are held briefly and
 dropped silently if they self-resolve.
 
+**Two Slack bots, two agents.** SRE-Oncall and Automation-Agent are separate
+Slack apps with separate identities, each routing to its own agent. The on-call
+bot owns the incident channel and hears about alerts; the automation bot lives
+in its own channel, runs n8n workflows on request, and has no cluster access at
+all. `app_mention` fires in any channel a bot is in, so each bot has an optional
+channel allow-list — otherwise two bots in one room both answer. See
+`docs/slack-setup.md`.
+
 **The console is not public.** It can start harness sessions, so it sits behind
 a sign-in whose account list fails closed, and reaches the harness only
 through a server-side proxy holding a bearer the browser never sees. The tunnel

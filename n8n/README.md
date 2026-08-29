@@ -180,31 +180,44 @@ part is that it is a **JSON-RPC POST handshake, not a REST GET** — there is no
 `"The requested webhook POST sre-oncall is not registered"`. That is the
 expected state of a fresh instance, not a misconfiguration.
 
-### harness-selftest — the one to try first
+### The tool hub
 
-`workflows/harness-selftest.json` exists to answer "is the path from the harness
-to n8n actually wired up?" without depending on anything else being right. It is
-an MCP Server Trigger and a Code Tool, so it needs **no credentials** beyond the
-bearer, calls nothing external, and changes nothing. It echoes your input back
-with a server-side timestamp — a value that can only have been produced inside
-n8n, which is the point.
+`/mcp/sre-oncall` is served by **one** workflow, `automation-tools`, with a tool
+sub-node per capability. It has to be one: n8n refuses to activate a second
+workflow claiming the same webhook path, so "a trigger per tool" cannot work.
 
-Set it up once:
+Two tools today, both exported to `n8n/workflows/`:
 
-1. Create a credential of type **Bearer Auth** named `sre-oncall MCP bearer`,
-   with `N8N_TOOLS_BEARER` as the token.
-2. Import `n8n/workflows/harness-selftest.json` and attach that credential to
-   the MCP Server Trigger node.
-3. **Activate it.** The tool does not exist until you do.
+| Tool | What it does | Needs |
+|---|---|---|
+| `harness_selftest` | echoes your input with a server-side timestamp | nothing |
+| `list_automations` | name / active / trigger for every workflow in the instance | the `n8n self API` credential |
+
+`harness_selftest` is a `toolCode` node — it answers "is the path from the
+harness to n8n wired up?" without depending on anything else being right.
+`list_automations` is a `toolWorkflow` node calling
+`automation: list-automations`, which does a real HTTP call and therefore gets
+its own execution record — the thing to point at when someone asks whether it
+really ran.
+
+Set up once:
+
+1. Credential **Bearer Auth** named `sre-oncall MCP bearer`, token
+   `N8N_TOOLS_BEARER` — the gate on the MCP endpoint.
+2. Credential **Header Auth** named `n8n self API`, header `X-N8N-API-KEY`,
+   value `N8N_API_KEY` — lets `list-automations` read live state without the key
+   ever appearing in a workflow definition.
+3. Import both workflow files, attach the credentials, and **activate both**.
+   The sub-workflow must be active too, or the hub's call fails with
+   *"Workflow is not active and cannot be executed."*
 
 Then, from the harness:
 
 ```bash
-npm run ask -- automation-engineer "Call harness_selftest with input 'hello'"
+npm run ask -- automation-engineer "Which automations can you run?" --approve
 ```
 
-That stops at the approval gate and names the call. Add `--approve` to allow it
-and see the workflow's real output come back.
+Or from Slack, in `#automation-agent` — see `docs/slack-setup.md`.
 
 ### A warning about the three standing workflows
 
@@ -218,8 +231,11 @@ currently register as tools**, and never have. Two faults, both silent:
   to a root node over a typed connection; for a tool that is `ai_tool`
 
 Neither produces an error. The workflow imports, opens in the editor, and
-exposes nothing. Compare against `harness-selftest.json`, which is known to
-work, before trusting any of the three.
+exposes nothing. They also now claim the same `sre-oncall` path as the hub, so
+activating one would fail outright.
+
+Compare against `automation-tools.json`, which is known to work, before
+trusting any of the three.
 
 ## Stopping the Containers
 
