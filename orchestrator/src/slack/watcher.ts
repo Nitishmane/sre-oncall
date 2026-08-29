@@ -1,7 +1,12 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import type { Logger } from "../logger.ts";
 import type { Store } from "../store.ts";
-import { createTranslator, UNKNOWN_TOOL, type PendingApproval } from "./translator.ts";
+import {
+  createTranslator,
+  UNKNOWN_TOOL,
+  type PendingApproval,
+  type PendingQuestion,
+} from "./translator.ts";
 import { applyAction, type Surface } from "./surface.ts";
 
 /**
@@ -49,6 +54,30 @@ export function createFollower(
       error: err instanceof Error ? err.message : String(err),
     });
   };
+
+  /**
+   * Records a question before posting it, for the same reason approvals are
+   * recorded first: the thread must be able to find the pending call again when
+   * someone replies, even if the Slack post failed or the process restarted.
+   */
+  async function recordAndAsk(question: PendingQuestion): Promise<void> {
+    const binding = deps.store.slackSession(sessionId);
+    if (binding === undefined) {
+      // No Slack thread to answer in — render it anyway so it is not lost.
+      await applyAction(surface, { kind: "question", question }, onError);
+      return;
+    }
+    deps.store.recordQuestion({
+      sessionId,
+      threadId: question.threadId,
+      toolCallId: question.toolCallId,
+      question: question.question,
+      channel: binding.channel,
+      threadTs: binding.thread_ts,
+    }, now());
+    deps.log.info("question asked", { sessionId, toolCallId: question.toolCallId });
+    await applyAction(surface, { kind: "question", question }, onError);
+  }
 
   async function recordAndShow(pending: PendingApproval): Promise<void> {
     const approval = await withToolDetail(pending);
@@ -111,6 +140,10 @@ export function createFollower(
       for (const action of translate.handle(event)) {
         if (action.kind === "approval") {
           await recordAndShow(action.approval);
+          continue;
+        }
+        if (action.kind === "question") {
+          await recordAndAsk(action.question);
           continue;
         }
         await applyAction(surface, action, onError);

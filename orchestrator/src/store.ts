@@ -31,6 +31,18 @@ export interface SlackSessionRow {
   updated_at: number;
 }
 
+export interface PendingQuestionRow {
+  id: number;
+  session_id: string;
+  thread_id: string;
+  tool_call_id: string;
+  question: string;
+  channel: string;
+  thread_ts: string;
+  answered_at: number | null;
+  created_at: number;
+}
+
 export interface ApprovalRow {
   id: number;
   session_id: string;
@@ -88,6 +100,24 @@ CREATE TABLE IF NOT EXISTS slack_sessions (
   updated_at  INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS slack_sessions_thread ON slack_sessions (channel, thread_ts);
+
+-- Questions the agent stopped to ask, and whether they have been answered.
+-- Persisted rather than held in memory because a thread waiting on an answer
+-- must survive a restart; otherwise the reply lands as an ordinary message and
+-- the tool call it was meant to answer is left outstanding forever.
+CREATE TABLE IF NOT EXISTS pending_questions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id    TEXT NOT NULL,
+  thread_id     TEXT NOT NULL,
+  tool_call_id  TEXT NOT NULL,
+  question      TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  thread_ts     TEXT NOT NULL,
+  answered_at   INTEGER,
+  created_at    INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pending_questions_call
+  ON pending_questions (session_id, tool_call_id);
 
 -- Audit log of every approval gate the agent hit: what it asked to do, who
 -- decided, and when. Survives restarts, and is what the /approvals endpoint
@@ -168,6 +198,20 @@ export function openStore(path: string) {
       updated_at = excluded.updated_at
   `);
   const slackByThread = db.prepare("SELECT * FROM slack_sessions WHERE channel = ? AND thread_ts = ?");
+  const insertQuestion = db.prepare(`
+    INSERT INTO pending_questions
+      (session_id, thread_id, tool_call_id, question, channel, thread_ts, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, tool_call_id) DO NOTHING
+  `);
+  const openQuestionForThread = db.prepare(`
+    SELECT * FROM pending_questions
+    WHERE channel = ? AND thread_ts = ? AND answered_at IS NULL
+    ORDER BY id DESC LIMIT 1
+  `);
+  const answerQuestion = db.prepare(
+    "UPDATE pending_questions SET answered_at = ? WHERE session_id = ? AND tool_call_id = ? AND answered_at IS NULL",
+  );
   const selectIncidentThread = db.prepare("SELECT * FROM incident_threads WHERE fingerprint = ?");
   const dropIncidentThread = db.prepare("DELETE FROM incident_threads WHERE fingerprint = ?");
   // First writer wins: two alerts arriving together must not each claim a thread.
@@ -292,6 +336,25 @@ export function openStore(path: string) {
     },
     setStatusMessage(sessionId: string, statusTs: string, now: number): void {
       setStatusTs.run(statusTs, now, sessionId);
+    },
+
+    /** Written before the question is posted, same discipline as approvals. */
+    recordQuestion(question: {
+      sessionId: string; threadId: string; toolCallId: string;
+      question: string; channel: string; threadTs: string;
+    }, now: number): void {
+      insertQuestion.run(
+        question.sessionId, question.threadId, question.toolCallId,
+        question.question, question.channel, question.threadTs, now,
+      );
+    },
+    /** The question a reply in this thread would be answering, if any. */
+    openQuestionForThread(channel: string, threadTs: string): PendingQuestionRow | undefined {
+      return openQuestionForThread.get(channel, threadTs) as PendingQuestionRow | undefined;
+    },
+    /** False when it was already answered — the guard against a double reply. */
+    markQuestionAnswered(sessionId: string, toolCallId: string, now: number): boolean {
+      return answerQuestion.run(now, sessionId, toolCallId).changes > 0;
     },
 
     recordApprovalRequest(request: {

@@ -1,4 +1,4 @@
-import type { PendingApproval, SurfaceAction } from "./translator.ts";
+import type { PendingApproval, PendingQuestion, SurfaceAction } from "./translator.ts";
 
 /**
  * Everything the watcher needs from Slack, as an interface — so the watcher can
@@ -11,6 +11,8 @@ export interface Surface {
   post(text: string): Promise<void>;
   /** Posts the approval prompt; returns the message ts so it can be updated. */
   postApproval(approval: PendingApproval): Promise<string | null>;
+  /** Posts a question the agent is waiting on; returns the message ts. */
+  postQuestion(question: PendingQuestion): Promise<string | null>;
   /** Clears the status line and marks the session finished. */
   finish(ok: boolean, detail: string | null): Promise<void>;
 }
@@ -35,6 +37,9 @@ export async function applyAction(
         return;
       case "approval":
         await surface.postApproval(action.approval);
+        return;
+      case "question":
+        await surface.postQuestion(action.question);
         return;
       case "done":
         await surface.finish(action.ok, action.detail);

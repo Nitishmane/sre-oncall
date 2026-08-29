@@ -6,13 +6,14 @@ import { createLogger } from "../src/logger.ts";
 import { createFollower } from "../src/slack/watcher.ts";
 import { decodeRef, encodeRef } from "../src/slack/blocks.ts";
 import type { Surface } from "../src/slack/surface.ts";
-import type { PendingApproval } from "../src/slack/translator.ts";
+import type { PendingApproval, PendingQuestion } from "../src/slack/translator.ts";
 
 const silent = createLogger("error");
 
 function recordingSurface() {
   const calls: string[] = [];
   const approvals: PendingApproval[] = [];
+  const questions: PendingQuestion[] = [];
   const surface: Surface = {
     setStatus: async (text) => { calls.push(`status:${text}`); },
     post: async (text) => { calls.push(`post:${text}`); },
@@ -21,9 +22,14 @@ function recordingSurface() {
       calls.push(`approval:${approval.toolLabel}`);
       return "1735000000.000100";
     },
+    postQuestion: async (question) => {
+      questions.push(question);
+      calls.push(`question:${question.question}`);
+      return "1735000000.000200";
+    },
     finish: async (ok) => { calls.push(`finish:${ok}`); },
   };
-  return { surface, calls, approvals };
+  return { surface, calls, approvals, questions };
 }
 
 async function* streamOf(...events: TrueForgeApi.TurnStreamingEvent[]) {
@@ -74,6 +80,7 @@ test("the audit log survives a surface that cannot post", async () => {
     setStatus: async () => {},
     post: async () => {},
     postApproval: async () => { throw new Error("slack is down"); },
+    postQuestion: async () => { throw new Error("slack is down"); },
     finish: async () => {},
   };
   const follower = createFollower("sess-1", broken, { log: silent, store, now: () => 1_000_000 });

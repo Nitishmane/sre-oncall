@@ -209,6 +209,58 @@ test("empty optional credentials mean 'not configured', not 'invalid'", () => {
   assert.deepEqual(config.SLACK_APPROVER_IDS, []);
 });
 
+test("two complete token pairs make two bots, each bound to its own agent", () => {
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    SLACK_BOT_TOKEN: "xoxb-oncall",
+    SLACK_APP_TOKEN: "xapp-oncall",
+    SLACK_INCIDENT_CHANNEL: "C0INCIDENT",
+    SLACK_APPROVER_IDS: "U1,U2",
+    SLACK_AUTOMATION_BOT_TOKEN: "xoxb-automation",
+    SLACK_AUTOMATION_APP_TOKEN: "xapp-automation",
+    SLACK_AUTOMATION_CHANNEL: "C0AUTOMATION",
+  } as NodeJS.ProcessEnv);
+
+  assert.equal(config.slackBots.length, 2);
+  const [oncall, automation] = config.slackBots;
+  assert.equal(oncall?.agentName, "sre-oncall");
+  assert.equal(oncall?.incidentChannel, "C0INCIDENT");
+  assert.deepEqual(oncall?.channels, [], "the on-call bot stays unrestricted by default");
+
+  assert.equal(automation?.agentName, "automation-engineer");
+  assert.equal(automation?.incidentChannel, undefined, "alerts never announce in the automation room");
+  assert.deepEqual(automation?.channels, ["C0AUTOMATION"]);
+  assert.deepEqual(automation?.approvers, ["U1", "U2"], "approvers are inherited, not widened to everyone");
+});
+
+test("a half-configured second bot is absent rather than broken", () => {
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    SLACK_BOT_TOKEN: "xoxb-oncall",
+    SLACK_APP_TOKEN: "xapp-oncall",
+    SLACK_AUTOMATION_BOT_TOKEN: "xoxb-automation",
+  } as NodeJS.ProcessEnv);
+
+  assert.equal(config.slackBots.length, 1);
+  assert.equal(config.slackBots[0]?.name, "oncall");
+  assert.equal(config.slackEnabled, true, "the on-call bot still runs");
+});
+
+test("a separate automation approver list is used when set", () => {
+  const config = loadConfig({
+    GRAFANA_WEBHOOK_BEARER: WEBHOOK_BEARER,
+    TRUEFORGE_BRIDGE_TOKEN: BRIDGE_BEARER,
+    SLACK_APPROVER_IDS: "U1",
+    SLACK_AUTOMATION_BOT_TOKEN: "xoxb-automation",
+    SLACK_AUTOMATION_APP_TOKEN: "xapp-automation",
+    SLACK_AUTOMATION_APPROVER_IDS: "U9,U8",
+  } as NodeJS.ProcessEnv);
+
+  assert.deepEqual(config.slackBots[0]?.approvers, ["U9", "U8"]);
+});
+
 test("a malformed Slack token is still rejected", () => {
   assert.throws(
     () => loadConfig({

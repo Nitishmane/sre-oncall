@@ -71,13 +71,63 @@ const schema = z.object({
     .string()
     .default("")
     .transform((raw) => raw.split(",").map((id) => id.trim()).filter((id) => id !== "")),
+  /**
+   * Channel ids the on-call bot answers mentions in. Empty means any channel,
+   * which is the historical behaviour and stays the default. Set it when a
+   * second bot shares the workspace and you want a hard boundary rather than
+   * relying on who ran `/invite`.
+   */
+  SLACK_CHANNELS: z
+    .string()
+    .default("")
+    .transform((raw) => raw.split(",").map((id) => id.trim()).filter((id) => id !== "")),
+
+  /**
+   * The automation bot: a second Slack app, its own bot user, its own Socket
+   * Mode connection. Separate tokens rather than a second channel on the first
+   * app, so it has its own identity and scopes.
+   */
+  SLACK_AUTOMATION_BOT_TOKEN: optional(z.string().startsWith("xoxb-")),
+  SLACK_AUTOMATION_APP_TOKEN: optional(z.string().startsWith("xapp-")),
+  /** The #automation-agent channel id. Unset means it answers anywhere. */
+  SLACK_AUTOMATION_CHANNEL: optional(z.string()),
+  /** Falls back to SLACK_APPROVER_IDS when empty — see buildSlackBots. */
+  SLACK_AUTOMATION_APPROVER_IDS: z
+    .string()
+    .default("")
+    .transform((raw) => raw.split(",").map((id) => id.trim()).filter((id) => id !== "")),
+  /** Agent the automation bot's sessions run against. */
+  TRUEFORGE_AUTOMATION_AGENT_NAME: z.string().default("automation-engineer"),
 });
+
+/**
+ * One Slack bot: its credentials, the agent it drives, and where it may speak.
+ *
+ * Bots are data rather than code so that adding one is a config change. Every
+ * Slack-specific field `createSlackApp` needs lives here, which is what makes
+ * the app factory instantiable more than once.
+ */
+export interface SlackBotProfile {
+  /** Short id, used in logs and to find the bot that owns the incident channel. */
+  name: "oncall" | "automation";
+  botToken: string;
+  appToken: string;
+  /** TrueForge agent this bot's chat sessions run against. */
+  agentName: string;
+  /** Channel ids it answers mentions in. Empty means anywhere. DMs always work. */
+  channels: string[];
+  /** Where alert-driven sessions announce. Only the on-call bot has one. */
+  incidentChannel: string | undefined;
+  approvers: string[];
+}
 
 export type Config = z.infer<typeof schema> & {
   skipPattern: RegExp | null;
   delayPattern: RegExp | null;
-  /** True when both Slack tokens are configured. */
+  /** True when at least one bot is fully configured. */
   slackEnabled: boolean;
+  /** Every bot with a complete token pair. Empty means Slack is off. */
+  slackBots: SlackBotProfile[];
 };
 
 function toRegExp(source: string): RegExp | null {
@@ -94,11 +144,54 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .join("\n");
     throw new Error(`Invalid orchestrator configuration:\n${detail}`);
   }
+  const slackBots = buildSlackBots(parsed.data);
   return {
     ...parsed.data,
     skipPattern: toRegExp(parsed.data.ALERT_SKIP_PATTERNS),
     delayPattern: toRegExp(parsed.data.ALERT_DELAY_PATTERNS),
-    slackEnabled:
-      parsed.data.SLACK_BOT_TOKEN !== undefined && parsed.data.SLACK_APP_TOKEN !== undefined,
+    slackEnabled: slackBots.length > 0,
+    slackBots,
   };
+}
+
+/**
+ * A bot exists only with a complete token pair — half a pair is a
+ * misconfiguration, and starting on it would fail at connect time with a much
+ * worse message than simply not appearing.
+ */
+function buildSlackBots(data: z.infer<typeof schema>): SlackBotProfile[] {
+  const bots: SlackBotProfile[] = [];
+
+  if (data.SLACK_BOT_TOKEN !== undefined && data.SLACK_APP_TOKEN !== undefined) {
+    bots.push({
+      name: "oncall",
+      botToken: data.SLACK_BOT_TOKEN,
+      appToken: data.SLACK_APP_TOKEN,
+      agentName: data.TRUEFORGE_AGENT_NAME,
+      channels: data.SLACK_CHANNELS,
+      incidentChannel: data.SLACK_INCIDENT_CHANNEL,
+      approvers: data.SLACK_APPROVER_IDS,
+    });
+  }
+
+  if (data.SLACK_AUTOMATION_BOT_TOKEN !== undefined && data.SLACK_AUTOMATION_APP_TOKEN !== undefined) {
+    bots.push({
+      name: "automation",
+      botToken: data.SLACK_AUTOMATION_BOT_TOKEN,
+      appToken: data.SLACK_AUTOMATION_APP_TOKEN,
+      agentName: data.TRUEFORGE_AUTOMATION_AGENT_NAME,
+      channels: data.SLACK_AUTOMATION_CHANNEL !== undefined ? [data.SLACK_AUTOMATION_CHANNEL] : [],
+      // No incident channel: alerts belong to on-call, and announcing them in
+      // the automation room would be noise nobody acts on.
+      incidentChannel: undefined,
+      // Inherit rather than default to unrestricted. Silently widening who may
+      // approve, just because a second variable was forgotten, is the wrong way
+      // to be wrong about an approval gate.
+      approvers: data.SLACK_AUTOMATION_APPROVER_IDS.length > 0
+        ? data.SLACK_AUTOMATION_APPROVER_IDS
+        : data.SLACK_APPROVER_IDS,
+    });
+  }
+
+  return bots;
 }

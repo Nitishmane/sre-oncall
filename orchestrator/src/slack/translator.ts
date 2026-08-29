@@ -32,6 +32,30 @@ export interface PendingApproval {
   sourceEventId: string | null;
 }
 
+/**
+ * A question the agent has stopped to ask.
+ *
+ * `ask_user_question` is a tool, not a special event, so the harness pauses the
+ * turn exactly the way it does for an approval — `tool.response_required`
+ * alongside `tool.approval_required`, same ids, and the answer goes back as
+ * `user.tool_response`. Everything here mirrors PendingApproval for that reason.
+ */
+export interface PendingQuestion {
+  sessionId: string;
+  /** Harness thread that owns the paused tool call. */
+  threadId: string;
+  toolCallId: string;
+  /** The question itself, as the agent phrased it. */
+  question: string;
+  /**
+   * Suggested answers, when the agent offered any. Rendered as buttons; an
+   * empty list means the answer has to be typed into the thread.
+   */
+  options: string[];
+  /** See PendingApproval.sourceEventId — the stream does not replay. */
+  sourceEventId: string | null;
+}
+
 export type SurfaceAction =
   /** Replace the in-place status line ("Investigating…", "Checking ArgoCD…"). */
   | { kind: "status"; text: string }
@@ -39,10 +63,15 @@ export type SurfaceAction =
   | { kind: "message"; text: string }
   /** Post an approval prompt with Approve/Deny buttons. */
   | { kind: "approval"; approval: PendingApproval }
+  /** Post a question the agent is waiting on an answer to. */
+  | { kind: "question"; question: PendingQuestion }
   /** The turn ended; `ok` is false for error or cancellation. */
   | { kind: "done"; ok: boolean; detail: string | null };
 
 const MAX_ARGUMENT_CHARS = 600;
+
+/** Pause types this surface knows how to put in front of a human. */
+const RENDERABLE_PAUSES = new Set(["tool.approval_required", "tool.response_required"]);
 
 /** Label used when the tool call was never seen; the follower tries to resolve it. */
 export const UNKNOWN_TOOL = "unknown tool";
@@ -124,6 +153,32 @@ export function createTranslator(sessionId: string) {
     };
   }
 
+  /**
+   * Reads the question out of the `ask_user_question` call that paused the turn.
+   * Shares `prompted` with approvals: both are "this tool call is waiting on a
+   * human", and the same call must not be posted twice when it arrives both
+   * mid-stream and again in `turn.done`.
+   */
+  function questionFor(ref: TrueForgeApi.ToolCallRef, threadId: string): SurfaceAction | null {
+    if (prompted.has(ref.id)) return null;
+    prompted.add(ref.id);
+    const seen = toolCalls.get(ref.id);
+    const { question, options } = parseQuestion(seen?.call.function.arguments);
+    return {
+      kind: "question",
+      question: {
+        sessionId,
+        threadId,
+        toolCallId: ref.id,
+        // Fall back to the agent's last words: a question we cannot read is
+        // still a question, and silence would strand the thread.
+        question: question || (seen?.rationale ?? "").trim() || lastText || "The agent asked a question.",
+        options,
+        sourceEventId: ref.sourceEventId ?? null,
+      },
+    };
+  }
+
   function handle(event: TrueForgeApi.TurnStreamingEvent): SurfaceAction[] {
     switch (event.type) {
       case "model.message": {
@@ -150,22 +205,54 @@ export function createTranslator(sessionId: string) {
           .filter((action): action is SurfaceAction => action !== null);
       }
 
+      case "tool.response_required": {
+        return event.toolCalls
+          .map((ref) => questionFor(ref, event.threadId))
+          .filter((action): action is SurfaceAction => action !== null);
+      }
+
       case "turn.done": {
         const state = event.state;
         if (state.status === "done") {
           // A turn that stops at an approval gate is also reported "done", with
           // the pending gates in `requiredActions`. That is a pause, not the end
           // of the session: prompt for the approvals and keep the thread open.
-          const pauses = pendingApprovals(state.requiredActions)
-            .flatMap((pending) =>
+          const pauses = [
+            ...pendingApprovals(state.requiredActions).flatMap((pending) =>
               pending.toolCalls
                 .map((ref) => approvalFor(ref, pending.threadId))
                 .filter((action): action is SurfaceAction => action !== null),
-            );
+            ),
+            ...pendingQuestions(state.requiredActions).flatMap((pending) =>
+              pending.toolCalls
+                .map((ref) => questionFor(ref, pending.threadId))
+                .filter((action): action is SurfaceAction => action !== null),
+            ),
+          ];
           if (state.requiredActions.length > 0) {
-            return pauses.length > 0
-              ? pauses
-              : [{ kind: "status", text: "Waiting on a pending action…" }];
+            if (pauses.length > 0) return pauses;
+
+            // No new prompt to post. Two very different reasons for that, and
+            // conflating them either strands a thread or closes a live one.
+            if (state.requiredActions.some((action) => RENDERABLE_PAUSES.has(action.type))) {
+              // Already prompted mid-stream; a human is looking at the buttons.
+              return [{ kind: "status", text: "Waiting on a pending action…" }];
+            }
+
+            // The turn is waiting on something this surface cannot render —
+            // `mcp.auth_required` today, and whatever the harness adds next.
+            // A status line would sit there forever looking like progress, so
+            // end the thread with what it is waiting on. A legible failure
+            // beats an indefinite spinner.
+            const kinds = [...new Set(state.requiredActions.map((action) => action.type))].join(", ");
+            return [
+              {
+                kind: "message",
+                text: `This session is paused on something I can't show here (${kinds}). ` +
+                  "Continue it in the TrueForge console.",
+              },
+              { kind: "done", ok: false, detail: `unrenderable pause: ${kinds}` },
+            ];
           }
 
           const finalText = textOf(state.output?.content).trim() || lastText;
@@ -196,6 +283,37 @@ function pendingApprovals(
     (action): action is TrueForgeApi.ToolApprovalRequiredEvent =>
       action.type === "tool.approval_required",
   );
+}
+
+function pendingQuestions(
+  actions: TrueForgeApi.ActionRequiredEvent[],
+): TrueForgeApi.ToolResponseRequiredEvent[] {
+  return actions.filter(
+    (action): action is TrueForgeApi.ToolResponseRequiredEvent =>
+      action.type === "tool.response_required",
+  );
+}
+
+/**
+ * `ask_user_question` arguments are `{question, options}`. Parsed defensively:
+ * a malformed payload must still produce a question a human can answer, because
+ * the alternative is a thread that waits forever.
+ */
+function parseQuestion(rawArguments: string | undefined): { question: string; options: string[] } {
+  if (rawArguments === undefined) return { question: "", options: [] };
+  try {
+    const parsed: unknown = JSON.parse(rawArguments);
+    if (typeof parsed !== "object" || parsed === null) return { question: "", options: [] };
+    const { question, options } = parsed as Record<string, unknown>;
+    return {
+      question: typeof question === "string" ? question.trim() : "",
+      options: Array.isArray(options)
+        ? options.filter((option): option is string => typeof option === "string" && option !== "")
+        : [],
+    };
+  } catch {
+    return { question: "", options: [] };
+  }
 }
 
 function firstLine(text: string): string {

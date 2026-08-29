@@ -67,6 +67,74 @@ Alert-triggered sessions post there and thread their whole investigation under
 that message. Without it the pipeline runs silently — useful for load testing,
 useless for a demo.
 
+## 3b. The second bot: Automation-Agent
+
+A separate app, not a second channel on the first one — it gets its own bot
+user, its own identity in Slack, and its own Socket Mode connection. Same
+recipe as above with a different manifest:
+
+```yaml
+display_information:
+  name: Automation-Agent
+  description: Runs n8n automations on request, behind an approval gate.
+  background_color: "#1a1d21"
+features:
+  bot_user:
+    display_name: Automation-Agent
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+```
+
+**Each app needs its own app-level token.** The first app's `xapp-…` will not
+work here — generate a new one under *Basic Information → App-Level Tokens*
+with `connections:write`. Reusing the first is the mistake people make, and it
+fails at connect time with a message that does not say so.
+
+```bash
+SLACK_AUTOMATION_BOT_TOKEN=xoxb-…
+SLACK_AUTOMATION_APP_TOKEN=xapp-…
+SLACK_AUTOMATION_CHANNEL=C0XXXXXXXXX     # the #automation-agent channel
+```
+
+Invite it to `#automation-agent` and nothing else. This bot routes to the
+**automation-engineer** agent, which holds the n8n tools and no cluster access.
+
+### Keeping the two bots out of each other's rooms
+
+`app_mention` fires in **any** channel a bot is a member of, so two bots invited
+to one channel would both answer. Two controls, and using both is worth it:
+
+- **Do not invite @SRE-Oncall to #automation-agent.** The event never fires for
+  a channel an app is not in, so this is a real control rather than a
+  convention.
+- **Set `SLACK_CHANNELS`** to the incident channel id. Then the on-call bot
+  ignores mentions anywhere else, and the guarantee no longer depends on who
+  ran `/invite`.
+
+DMs are exempt from both — a DM channel id is never in an allow-list, and being
+able to message either bot privately is useful.
+
 ## 4. Restrict who can approve
 
 ```bash
