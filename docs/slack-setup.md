@@ -26,9 +26,7 @@ oauth_config:
       - app_mentions:read   # receive @mentions
       - chat:write          # post, edit and delete the status message
       - channels:history    # read thread replies in public channels
-      - channels:read       # channel info
       - groups:history      # private channels, if you use one for incidents
-      - groups:read
       - im:history          # DMs
       - im:read
       - im:write
@@ -43,6 +41,12 @@ settings:
   socket_mode_enabled: true
   org_deploy_enabled: false
 ```
+
+Deliberately **not** requesting `channels:read` / `groups:read`. Nothing in the
+orchestrator calls `conversations.info`; mentions arrive with the channel id
+already on the event, and thread replies come from `*:history`. Both live bots
+run without them. Ask for the scopes the code uses and no others — an unused
+permission is one a reviewer has to think about.
 
 ## 2. Get the two tokens
 
@@ -88,9 +92,7 @@ oauth_config:
       - app_mentions:read
       - chat:write
       - channels:history
-      - channels:read
       - groups:history
-      - groups:read
       - im:history
       - im:read
       - im:write
