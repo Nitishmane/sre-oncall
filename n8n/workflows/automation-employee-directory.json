@@ -1,0 +1,48 @@
+{
+  "name": "automation: employee-directory",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "c1",
+      "name": "Build directory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// A synthetic employee directory. Deterministic on purpose: a demo that returns\n// different rows each run is one you cannot rehearse against.\n//\n// The optional filter arrives as whatever the caller passed; treat it as a\n// plain substring match over department and role rather than requiring exact\n// syntax, because the caller is a language model and will phrase it freely.\nconst people = [\n  { id: 'E-1001', name: 'Amara Osei',      role: 'Staff SRE',            department: 'Platform',    location: 'Lisbon',    on_call: true,  started: '2021-03-15' },\n  { id: 'E-1002', name: 'Ravi Menon',      role: 'Senior SRE',           department: 'Platform',    location: 'Bengaluru', on_call: false, started: '2022-07-04' },\n  { id: 'E-1003', name: 'Lena Fischer',    role: 'Platform Engineer',    department: 'Platform',    location: 'Berlin',    on_call: false, started: '2023-01-09' },\n  { id: 'E-1004', name: 'Tomas Alvarez',   role: 'Engineering Manager',  department: 'Platform',    location: 'Madrid',    on_call: false, started: '2020-11-02' },\n  { id: 'E-2001', name: 'Priya Raghavan',  role: 'Data Engineer',        department: 'Data',        location: 'Bengaluru', on_call: true,  started: '2022-02-21' },\n  { id: 'E-2002', name: 'Jonas Lindqvist', role: 'Analytics Engineer',   department: 'Data',        location: 'Stockholm', on_call: false, started: '2023-09-18' },\n  { id: 'E-3001', name: 'Mei Tanaka',      role: 'Security Engineer',    department: 'Security',    location: 'Singapore', on_call: true,  started: '2021-06-07' },\n  { id: 'E-3002', name: 'Daniel Okafor',   role: 'AppSec Engineer',      department: 'Security',    location: 'Lagos',     on_call: false, started: '2024-04-15' },\n  { id: 'E-4001', name: 'Sofia Rossi',     role: 'Product Manager',      department: 'Product',     location: 'Milan',     on_call: false, started: '2022-10-10' },\n  { id: 'E-4002', name: 'Noah Bergman',    role: 'Designer',             department: 'Product',     location: 'Oslo',      on_call: false, started: '2023-05-22' },\n];\n\nconst raw = JSON.stringify($input.first()?.json ?? {}).toLowerCase();\nconst matched = people.filter((p) =>\n  raw.includes(p.department.toLowerCase()) || raw.includes(p.role.toLowerCase()));\n// No recognisable filter in the request means \"show me everyone\".\nconst rows = matched.length > 0 ? matched : people;\n\nconst byDept = {};\nfor (const p of rows) byDept[p.department] = (byDept[p.department] ?? 0) + 1;\n\nreturn [{\n  json: {\n    count: rows.length,\n    total_headcount: people.length,\n    on_call_now: rows.filter((p) => p.on_call).map((p) => p.name),\n    by_department: byDept,\n    employees: rows,\n  },\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Build directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

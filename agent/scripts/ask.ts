@@ -31,9 +31,12 @@ const args = process.argv.slice(2);
 const autoApprove = args.includes("--approve");
 const answerAt = args.indexOf("--answer");
 const answer = answerAt === -1 ? undefined : args[answerAt + 1];
-const positional = args.filter((arg, i) =>
-  arg !== "--approve" && arg !== "--answer" && i !== answerAt + 1);
-const [agentName, prompt] = positional;
+// `answerAt + 1` is 0 when the flag is absent, which would silently eat the
+// first positional — the agent name.
+const answerValueAt = answerAt === -1 ? -1 : answerAt + 1;
+const [agentName, prompt] = args.filter(
+  (arg, i) => arg !== "--approve" && arg !== "--answer" && i !== answerValueAt,
+);
 
 if (agentName === undefined || prompt === undefined) {
   console.error('usage: npm run ask -- <agent> "<prompt>" [--approve] [--answer "reply"]');
