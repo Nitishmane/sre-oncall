@@ -59,6 +59,37 @@ const approvalTurn: TrueForgeApi.TurnStreamingEvent[] = [
   },
 ];
 
+test("a recurrence starts a new clock instead of inheriting the first outage's", () => {
+  // The bug this pins: `started_at` was held with COALESCE, which is right
+  // while one alert re-notifies and wrong when it fires again days later. A
+  // twelve-minute outage was written up with an MTTR of 26h18m — the age of the
+  // fingerprint, not the length of the incident.
+  const store = openStore(":memory:");
+  const alert = { fingerprint: "fp-1", ruleUid: "r1", ruleName: "ReplicasUnavailable", orgId: 1 };
+
+  // First outage, and its resolution.
+  store.recordSeen({ ...alert, status: "firing", startsAt: "2026-08-28T04:22:20Z", endsAt: null }, 1_000);
+  store.recordSeen({ ...alert, status: "firing", startsAt: "2026-08-28T04:25:00Z", endsAt: null }, 2_000);
+  store.recordSeen({ ...alert, status: "resolved", startsAt: "2026-08-28T04:22:20Z", endsAt: "2026-08-28T04:40:00Z" }, 3_000);
+
+  const first = store.get("fp-1");
+  assert.equal(first?.started_at, "2026-08-28T04:22:20Z", "re-notification does not reset a live incident's clock");
+  assert.equal(first?.resolved_at, "2026-08-28T04:40:00Z");
+
+  // A day later the same fingerprint fires again: a different outage.
+  store.recordSeen({ ...alert, status: "firing", startsAt: "2026-08-29T06:29:20Z", endsAt: null }, 4_000);
+  const second = store.get("fp-1");
+  assert.equal(second?.started_at, "2026-08-29T06:29:20Z", "a new occurrence starts a new clock");
+  assert.equal(second?.resolved_at, null, "and cannot be paired with the previous resolution");
+
+  store.recordSeen({ ...alert, status: "resolved", startsAt: "2026-08-29T06:29:20Z", endsAt: "2026-08-29T06:41:00Z" }, 5_000);
+  const done = store.get("fp-1");
+  const minutes =
+    (Date.parse(done!.resolved_at!) - Date.parse(done!.started_at!)) / 60_000;
+  assert.equal(minutes, 11.666666666666666, "MTTR is this outage, not the fingerprint's age");
+  store.close();
+});
+
 test("a question whose answer could not be submitted is reopened, not lost", () => {
   // The claim must be taken before the remote call or two replies race. But a
   // claim that is never released strands the thread: the tool call stays

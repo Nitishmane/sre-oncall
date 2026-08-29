@@ -175,8 +175,27 @@ export function openStore(path: string) {
       status      = excluded.status,
       last_seen_at = excluded.last_seen_at,
       rule_uid    = COALESCE(excluded.rule_uid, incidents.rule_uid),
-      started_at  = COALESCE(incidents.started_at, excluded.started_at),
-      resolved_at = excluded.resolved_at
+      -- A row is keyed by fingerprint, and a fingerprint is stable across
+      -- recurrences. Holding started_at with COALESCE is right *within* one
+      -- occurrence — a firing alert re-notifies every few minutes and must not
+      -- keep resetting its own clock — and wrong *across* them: the second
+      -- outage inherits the first one's start, and MTTR becomes the age of the
+      -- fingerprint rather than the length of the incident. Observed as a
+      -- postmortem reporting 26h18m for a twelve-minute outage.
+      --
+      -- resolved -> firing is the boundary between occurrences. Start a new
+      -- clock there, and clear the old resolution so it cannot be paired with
+      -- the new start.
+      started_at  = CASE
+        WHEN incidents.status = 'resolved' AND excluded.status = 'firing'
+          THEN excluded.started_at
+        ELSE COALESCE(incidents.started_at, excluded.started_at)
+      END,
+      resolved_at = CASE
+        WHEN incidents.status = 'resolved' AND excluded.status = 'firing'
+          THEN NULL
+        ELSE excluded.resolved_at
+      END
   `);
   const selectOne = db.prepare("SELECT * FROM incidents WHERE fingerprint = ?");
   // A new occurrence clears the previous one's postmortem, so the write-up for
