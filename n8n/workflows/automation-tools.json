@@ -61,6 +61,33 @@
           "convertFieldsToString": false
         }
       }
+    },
+    {
+      "id": "tool-emp",
+      "name": "employee_directory",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        380
+      ],
+      "parameters": {
+        "description": "Look up people in the employee directory. Returns id, name, role, department, location, who is on call, and start date, plus a headcount by department. Pass a department or role to filter (for example \"Platform\" or \"Security\"); pass nothing to list everyone.",
+        "workflowId": {
+          "__rl": true,
+          "value": "7oerFJzvhYQYg9m8",
+          "mode": "list",
+          "cachedResultName": "automation: employee-directory"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
     }
   ],
   "connections": {
@@ -76,6 +103,17 @@
       ]
     },
     "list_automations": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "employee_directory": {
       "ai_tool": [
         [
           {

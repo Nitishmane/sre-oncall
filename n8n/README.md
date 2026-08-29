@@ -192,13 +192,20 @@ Two tools today, both exported to `n8n/workflows/`:
 |---|---|---|
 | `harness_selftest` | echoes your input with a server-side timestamp | nothing |
 | `list_automations` | name / active / trigger for every workflow in the instance | the `n8n self API` credential |
+| `employee_directory` | a synthetic staff directory — id, name, role, department, location, who is on call, start date, plus headcount by department. Filter by department or role, or pass nothing for everyone | nothing |
 
 `harness_selftest` is a `toolCode` node — it answers "is the path from the
 harness to n8n wired up?" without depending on anything else being right.
-`list_automations` is a `toolWorkflow` node calling
-`automation: list-automations`, which does a real HTTP call and therefore gets
-its own execution record — the thing to point at when someone asks whether it
-really ran.
+
+`list_automations` and `employee_directory` are `toolWorkflow` nodes calling
+sub-workflows, so each call leaves **two** execution records in n8n: the hub and
+the sub-workflow. That is the thing to point at when someone asks whether it
+really ran rather than being made up.
+
+`employee_directory` is the one to demo. It returns actual rows an agent can
+format as a table, needs no credentials and no network, and is **deterministic**
+— a demo that returns different data each run is one you cannot rehearse
+against. The data is synthetic; nothing here is real staff information.
 
 Set up once:
 
@@ -207,9 +214,12 @@ Set up once:
 2. Credential **Header Auth** named `n8n self API`, header `X-N8N-API-KEY`,
    value `N8N_API_KEY` — lets `list-automations` read live state without the key
    ever appearing in a workflow definition.
-3. Import both workflow files, attach the credentials, and **activate both**.
-   The sub-workflow must be active too, or the hub's call fails with
-   *"Workflow is not active and cannot be executed."*
+3. Import all three workflow files, attach the credentials, and **activate every
+   one of them**. A sub-workflow must be active too, or the hub's call fails
+   with *"Workflow is not active and cannot be executed."*
+4. Re-point each `toolWorkflow` node at the sub-workflow **as imported**. The
+   exported `workflowId` is this instance's id and will not match a fresh
+   import.
 
 Then, from the harness:
 
