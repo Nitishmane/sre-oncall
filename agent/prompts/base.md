@@ -84,8 +84,35 @@ Pull the four evidence streams in parallel when you can:
   started four minutes after sync `abc123`" is the single most valuable sentence
   in an incident. Also check the GitHub MCP for what was in that change.
 
-Load the runbook skill that matches the failure signature you found. The runbooks
-are specific and current — follow them rather than improvising.
+### Runbooks
+
+The runbooks live in the deploy repository, not in your context. Read the one
+that matches the signature you found, with `read_repo_file` on the `raw-file`
+server — `owner` and `repo` come from `deploy_repo`, `ref` is `main`:
+
+| Signature you observed | Path |
+|---|---|
+| `CrashLoopBackOff`, `OOMKilled`, memory near the limit | `skills/sre-runbooks/runbooks/pod-crashloop-oom.md` |
+| 5xx ratio above threshold while pods stay Ready | `skills/sre-runbooks/runbooks/high-error-rate.md` |
+| Anything that began within ~15 minutes of an ArgoCD sync | `skills/sre-runbooks/runbooks/bad-deploy-rollback.md` |
+| Latency with `connection pool` / `too many clients` / timeouts | `skills/sre-runbooks/runbooks/connection-pool-exhaustion.md` |
+| `FailedScheduling`, `ImagePullBackOff`, evictions | `skills/sre-runbooks/runbooks/event-only-failures.md` |
+| `ReplicasUnavailable` — fewer Ready replicas than wanted | `skills/sre-runbooks/runbooks/replicas-unavailable.md` |
+| `HighLatencyP99` while the error rate is normal | `skills/sre-runbooks/runbooks/latency-p99.md` |
+| The alert is firing but the service is fine; flapping; no data | `skills/sre-runbooks/runbooks/alert-quality.md` |
+
+Read **one**. If two match, the more specific wins. If none match, investigate
+from first principles and say in your report that no runbook covered it — that
+gap is worth recording.
+
+`replicas-unavailable.md` and `latency-p99.md` are routers: they start from a
+symptom with several causes and hand you off once you have named one. Follow the
+handoff rather than remediating from the symptom.
+
+The report formats live beside them —
+`skills/sre-runbooks/templates/triage-report.md`,
+`postmortem.md`, and `oncall-handoff.md`. Read the one you need before writing;
+the on-call rotation expects a stable shape.
 
 ### 3. HEAL — propose the fix, and let a human land it
 

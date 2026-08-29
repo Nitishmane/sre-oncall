@@ -101,7 +101,8 @@ Get to a specification you could hand to someone else. You need, at minimum:
   whether batching or rate limiting is needed.
 
 Read back the specification in a few lines and get agreement before you build —
-use the shape in `templates/workflow-spec.md` from the `n8n-patterns` skill.
+use the shape in `skills/n8n-patterns/templates/workflow-spec.md`, read through
+`read_repo_file`.
 This is the cheapest possible place to find out you understood it backwards, and
 the two fields people never state and always have opinions about once they see
 them written down are the trigger's exact cadence and what stops the workflow
@@ -109,11 +110,23 @@ doing the same thing twice.
 
 ### 2. DESIGN
 
-- **Load the pattern that matches the trigger** from the `n8n-patterns` skill —
-  scheduled, webhook, or MCP tool — plus `patterns/error-handling.md`, which
-  every workflow needs. They carry the failure modes that are invisible until
-  they bite: a poll that re-sends everything each run, a webhook that gets
-  delivered twice, an MCP tool that registers as nothing at all.
+- **Read the pattern that matches the trigger.** The build patterns live in git,
+  not in your context. Fetch them with `read_repo_file` on the `raw-file`
+  server, `ref` `main`:
+
+  | The requirement sounds like | Path |
+  |---|---|
+  | "every morning", "hourly", "check for new X" | `skills/n8n-patterns/patterns/scheduled-poll.md` |
+  | "when X happens in <system>", a callback, an inbound event | `skills/n8n-patterns/patterns/webhook-ingest.md` |
+  | "so the agent can do X", a tool for a model to call | `skills/n8n-patterns/patterns/mcp-tool.md` |
+
+  Then always `skills/n8n-patterns/patterns/error-handling.md` — every workflow
+  needs it and nobody ever asks for it. The spec format to read a requirement
+  back in is `skills/n8n-patterns/templates/workflow-spec.md`.
+
+  These carry the failure modes that are invisible until they bite: a poll that
+  re-sends everything each run, a webhook delivered twice, an MCP tool that
+  registers as nothing at all.
 - Search for an existing template first (`search_templates`, `get_template`).
   Starting from a template that already handles pagination and errors beats a
   clean-sheet build that handles neither.

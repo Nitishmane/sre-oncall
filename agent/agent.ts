@@ -316,6 +316,25 @@ export const mcpServers: McpDefinition[] = [
   },
 ];
 
+/**
+ * Skill manifests, kept and still registered on the harness — but **not
+ * attached to any agent here**, because git-backed skills cannot install on
+ * this host.
+ *
+ * The harness materialises a skill by running its own `git_downloader.py`
+ * inside a seatbelt sandbox whose policy is `denyRead: ["/"]` plus an
+ * allow-list. `xcode-select` resolves `/var/select/developer_dir`, which does
+ * not exist on this machine; outside the sandbox that is a harmless ENOENT and
+ * it falls back, inside it is EPERM and fatal. So `git ls-remote` exits 1 and
+ * every session that attaches a skill opens with "Sandbox initialization
+ * failed" — before the agent has done anything.
+ *
+ * The content is good and the manifests are correct, so they stay: on a host
+ * where the sandbox works, re-adding them to `skillNames` is the whole change.
+ * Until then the same files are read out of git through the `raw-file` server,
+ * which needs no sandbox, and each prompt carries the routing table that would
+ * otherwise come from SKILL.md.
+ */
 export const skills: TrueForgeApi.SkillManifest[] = [
   {
     name: "n8n-patterns",
@@ -439,7 +458,10 @@ export const agents: AgentDefinition[] = [
     mcpServerNames: [
       "grafana", "kubernetes", "argocd", "terraform", "github", "raw-file", "notion",
     ],
-    skillNames: ["sre-runbooks"],
+    // Detached deliberately — see the note on `skills` below. The runbooks are
+    // read through the raw-file server instead, and the prompt carries the
+    // routing table that would otherwise live in SKILL.md.
+    skillNames: [],
     model: primaryModel,
     config: {
       // Skills need a sandbox; the agent also drafts postmortems and scratch
@@ -467,8 +489,10 @@ export const agents: AgentDefinition[] = [
     // Only n8n. This agent has no cluster, no deploy repo and no alerting —
     // it cannot touch production even if a requirement asks it to, which is
     // the point: its blast radius is the workflows it writes.
-    mcpServerNames: ["n8n-builder", "n8n-tools"],
-    skillNames: ["n8n-patterns"],
+    // raw-file is here only to read its own build patterns out of git; it
+    // grants no access to the cluster or to any deploy path.
+    mcpServerNames: ["n8n-builder", "n8n-tools", "raw-file"],
+    skillNames: [],
     model: automationModel,
     config: {
       // It drafts and diffs workflow JSON, which is easier in a file than in
