@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SRE-Oncall — Two AI Agents on the TrueForge Harness</title>
+<meta name="description" content="SRE-Oncall: an alert-driven on-call agent and an automation engineer, both on the TrueForge harness. Which agent runs on what, which tools, and where the approval gates are.">
+<style>
+  :root {
+    --bg: #0a0e12;
+    --bg2: #0e141b;
+    --panel: #121a23;
+    --panel2: #16202b;
+    --line: #223140;
+    --txt: #c8d6e0;
+    --dim: #6b8299;
+    --green: #46e08c;
+    --green-dim: #2a8f5c;
+    --red: #ff6b6b;
+    --amber: #ffc857;
+    --cyan: #5ad1e6;
+    --violet: #b48ce6;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0 1px, transparent 1px 3px),
+      radial-gradient(1200px 600px at 70% -10%, rgba(70,224,140,.06), transparent 60%),
+      radial-gradient(900px 500px at 10% 110%, rgba(90,209,230,.05), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  main { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 0 24px 96px; }
+
+  .statusbar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+    padding: 10px 24px;
+    background: rgba(10,14,18,.92);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(4px);
+    font-size: 12px; letter-spacing: .06em;
+  }
+  .statusbar .dot { color: var(--green); animation: pulse 2.2s infinite; }
+  .statusbar b { color: var(--green); font-weight: 600; }
+  .statusbar .right { margin-left: auto; color: var(--dim); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  header.hero { padding: 72px 0 8px; }
+  .prompt { color: var(--green-dim); font-size: 13px; letter-spacing: .1em; }
+  h1 { font-size: clamp(34px, 6vw, 54px); line-height: 1.06; letter-spacing: -.02em; color: #eaf4fb; margin-top: 10px; }
+  h1 .accent { color: var(--green); }
+  .cursor { display: inline-block; width: 11px; height: .78em; background: var(--green); margin-left: 6px; vertical-align: baseline; animation: blink 1.05s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0 } }
+  .tagline { color: var(--dim); max-width: 680px; margin-top: 16px; }
+  .tagline em { color: var(--txt); font-style: normal; }
+  .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; font-size: 12px; }
+  .badge { border: 1px solid var(--line); padding: 5px 12px; border-radius: 3px; color: var(--dim); }
+  .badge.hot { border-color: var(--green-dim); color: var(--green); }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .btn { padding: 10px 20px; border-radius: 3px; font-size: 13px; transition: .18s; }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn.primary { background: var(--green); color: #06120b; font-weight: 700; }
+  .btn.primary:hover { box-shadow: 0 0 34px rgba(70,224,140,.4); }
+  .btn.ghost { border: 1px solid var(--line); color: var(--txt); }
+
+  section { margin-top: 76px; }
+  h2 { font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: var(--green); margin-bottom: 22px; }
+  h2::before { content: "▍"; color: var(--green-dim); margin-right: 8px; }
+  h3 { font-size: 14px; color: #eaf4fb; margin: 28px 0 10px; }
+  p.lede { color: var(--dim); max-width: 760px; margin-bottom: 20px; }
+  p.lede b, p.lede strong { color: var(--txt); }
+
+  /* incident flow */
+  ol.flow { list-style: none; counter-reset: step; }
+  ol.flow li { counter-increment: step; display: grid; grid-template-columns: 52px 1fr; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  ol.flow li::before { content: "0" counter(step); color: var(--green); font-weight: 700; font-size: 20px; opacity: .85; }
+  ol.flow li:nth-child(n+10)::before { content: counter(step); }
+  ol.flow b { color: #eaf4fb; }
+  ol.flow .who { color: var(--dim); font-size: 12px; display: block; margin-top: 2px; }
+  .gate { color: var(--amber); }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 700px; }
+  th { text-align: left; padding: 10px 14px; color: var(--green); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line); background: var(--panel); }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { color: #eaf4fb; font-weight: 600; white-space: nowrap; }
+  td .sub { color: var(--dim); font-weight: 400; }
+  td.wrap:first-child { white-space: normal; }
+
+  /* two agent lanes */
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .lane { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); overflow: hidden; }
+  .lane > header { padding: 13px 16px; border-bottom: 1px solid var(--line); }
+  .lane.oncall > header { background: rgba(255,107,107,.07); }
+  .lane.auto > header { background: rgba(180,140,230,.08); }
+  .lane .aname { font-weight: 700; color: #eaf4fb; font-size: 14px; }
+  .lane.oncall .aname { color: var(--red); }
+  .lane.auto .aname { color: var(--violet); }
+  .lane .arole { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .lane ul { list-style: none; padding: 12px 14px; }
+  .lane li { padding: 7px 0; border-bottom: 1px dotted var(--line); font-size: 12.5px; display: flex; align-items: baseline; gap: 8px; }
+  .lane li:last-child { border-bottom: none; }
+  .lane li b { color: #eaf4fb; font-weight: 600; }
+  .lane li .g { margin-left: auto; font-size: 10.5px; padding: 1px 7px; border-radius: 2px; white-space: nowrap; }
+  .g.locked { color: var(--amber); border: 1px solid rgba(255,200,87,.45); }
+  .g.part { color: var(--cyan); border: 1px solid rgba(90,209,230,.4); }
+  .g.open { color: var(--green); border: 1px solid rgba(70,224,140,.35); }
+  .shared { margin-top: 14px; border: 1px dashed var(--line); border-radius: 6px; padding: 13px 16px; font-size: 12.5px; color: var(--dim); background: rgba(90,209,230,.03); }
+  .shared b { color: var(--cyan); }
+
+  /* gate mechanism */
+  .gateflow { display: grid; gap: 0; }
+  .gnode { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; }
+  .gnode .t { color: #eaf4fb; font-weight: 700; font-size: 13.5px; }
+  .gnode .d { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .gnode.stop { border-left: 3px solid var(--amber); }
+  .gnode.go { border-left: 3px solid var(--green); }
+  .gnode.deny { border-left: 3px solid var(--red); }
+  .garrow { text-align: center; color: var(--green-dim); padding: 7px 0; font-size: 15px; }
+  .garrow small { color: var(--dim); display: block; font-size: 11px; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  /* topology */
+  .topo { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
+  .tier { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); }
+  .tier header { padding: 12px 16px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 700; }
+  .tier.vercel header { background: rgba(90,209,230,.08); color: var(--cyan); border-bottom: 1px solid var(--line); }
+  .tier.localhost header { background: rgba(70,224,140,.08); color: var(--green); border-bottom: 1px solid var(--line); }
+  .tier.saas header { background: rgba(255,200,87,.07); color: var(--amber); border-bottom: 1px solid var(--line); }
+  .tier ul { list-style: none; padding: 12px 16px; font-size: 13px; }
+  .tier li { padding: 5px 0; border-bottom: 1px dotted var(--line); }
+  .tier li:last-child { border-bottom: none; }
+  .tier li small { color: var(--dim); display: block; font-size: 11.5px; }
+
+  /* loops */
+  .loops { display: grid; gap: 14px; }
+  .loop { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 16px 18px; }
+  .loop .name { font-weight: 700; color: #eaf4fb; font-size: 15px; }
+  .loop .name .n { color: var(--green); margin-right: 8px; }
+  .loop .trigger { color: var(--dim); font-size: 12.5px; margin: 4px 0 12px; }
+  .loop .trigger b { color: var(--amber); font-weight: 600; }
+  .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+  .chain span { border: 1px solid var(--line); border-radius: 3px; padding: 3px 9px; color: var(--txt); background: var(--panel2); }
+  .chain span.gate { border-color: rgba(255,200,87,.5); color: var(--amber); }
+  .chain span.ok { border-color: rgba(70,224,140,.5); color: var(--green); }
+  .chain i { color: var(--green-dim); font-style: normal; }
+  .loop.l-metric { border-left: 3px solid var(--red); }
+  .loop.l-deploy { border-left: 3px solid var(--cyan); }
+  .loop.l-auto   { border-left: 3px solid var(--violet); }
+  .loop.l-learn  { border-left: 3px solid var(--dim); }
+
+  /* honesty */
+  .real { display: grid; gap: 12px; }
+  .rrow { display: grid; grid-template-columns: 92px 1fr; gap: 16px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; }
+  .rtag { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; padding: 3px 8px; border-radius: 2px; text-align: center; font-weight: 700; }
+  .rtag.v { color: var(--green); border: 1px solid rgba(70,224,140,.45); }
+  .rtag.p { color: var(--amber); border: 1px solid rgba(255,200,87,.45); }
+  .rtag.n { color: var(--dim); border: 1px solid var(--line); }
+  .rrow b { color: #eaf4fb; }
+  .rrow .d { color: var(--dim); font-size: 12.5px; margin-top: 3px; }
+
+  .safety { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .safety .card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--amber); border-radius: 4px; padding: 16px; font-size: 12.5px; color: var(--dim); }
+  .safety .card b { color: #eaf4fb; display: block; margin-bottom: 6px; font-size: 13.5px; }
+
+  code { background: var(--panel2); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; font-size: .92em; color: var(--green); }
+  .note { border-left: 2px solid var(--line); padding-left: 16px; color: var(--dim); font-size: 13px; margin-top: 18px; }
+  .note b { color: var(--txt); }
+
+  footer { margin-top: 92px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 8px 24px; }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  @media (max-width: 720px) {
+    .lanes, .split { grid-template-columns: 1fr; }
+    ol.flow li { grid-template-columns: 40px 1fr; }
+    body { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="statusbar">
+  <span><span class="dot">●</span> <b>SRE-ONCALL</b> v0.1</span>
+  <span>harness: TrueForge</span>
+  <span>model: openai/gpt-5-6-terra</span>
+  <span>agents: 2</span>
+  <span class="right">WeMakeDevs · Agent Harness Hackathon · Aug 2026</span>
+</div>
+
+<main>
+
+<header class="hero">
+  <div class="prompt">$ ./sre-oncall --explain</div>
+  <h1>Two agents that do<br>on-call work<span class="cursor"></span></h1>
+  <p class="tagline">
+    An alert fires at 3am. Something changed twenty minutes ago and nobody remembers what.
+    <em>SRE-Oncall investigates it — reads the metrics, the logs, the cluster events and the deploy
+    history — then opens a pull request containing the revert and its own reasoning.</em>
+    A human reviews and merges. That merge is the approval; the agent never merges its own work.
+  </p>
+  <p class="tagline">
+    A second agent, <em>Automation-Engineer</em>, turns spoken requirements into n8n workflows.
+    It shares no tools with the first one, and it cannot reach the cluster at all.
+  </p>
+  <div class="badges">
+    <span class="badge hot">runs on TrueForge</span>
+    <span class="badge">approval-gated</span>
+    <span class="badge">MCP: 8 servers</span>
+    <span class="badge">2 Slack bots</span>
+    <span class="badge">public repo · PR-per-change</span>
+  </div>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/Nitishmane/sre-oncall">read the source →</a>
+    <a class="btn ghost" href="#agents">what runs what ↓</a>
+  </div>
+</header>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="scenario">
+  <h2>The demo, end to end</h2>
+  <p class="lede">
+    A bad release breaks a liveness probe. Nothing here is simulated: the alert is a real Grafana
+    rule over real Prometheus data, the cluster is a real kind cluster, and the pull request is a
+    real pull request.
+  </p>
+  <ol class="flow">
+    <li><b>A commit changes the demo service's health endpoint.</b>
+      <span class="who">ArgoCD auto-syncs it. The liveness probe now points at a path that 404s.</span></li>
+    <li><b>Pods start failing their probe and restarting.</b>
+      <span class="who">kubelet · CrashLoopBackOff</span></li>
+    <li><b>Grafana fires <code>ReplicasUnavailable</code>.</b>
+      <span class="who">The rule is Terraform-managed. Its webhook posts to the orchestrator, bearer-authenticated.</span></li>
+    <li><b>The orchestrator admits the alert and starts a healing session.</b>
+      <span class="who">Deduplicated per fingerprint, rate-limited, flap-delayed. One session per incident, not one per notification.</span></li>
+    <li><b>SRE-Oncall investigates.</b>
+      <span class="who">Grafana MCP for the alert rule and PromQL · Kubernetes MCP for pod status, events and the previous container's logs · ArgoCD MCP for "what synced, and when"</span></li>
+    <li><b>It correlates the failure to the sync.</b>
+      <span class="who">"This started four minutes after sync abc123, which changed the probe path" — the single most valuable sentence in an incident.</span></li>
+    <li><b>It opens a revert pull request — <span class="gate">without asking</span>.</b>
+      <span class="who">Creating a branch and a PR changes nothing that runs. The PR is the artefact a human reads, so producing one must not itself wait on approval.</span></li>
+    <li><b>The PR body carries the whole case.</b>
+      <span class="who">CAUSE with evidence · CHANGE · WHY · EXPECT · RISK. The reviewer never has to read back through the session.</span></li>
+    <li><b>A human reviews and merges. <span class="gate">This is the gate.</span></b>
+      <span class="who">The agent cannot merge — <code>merge_pull_request</code> is gated and the prompt forbids it outright.</span></li>
+    <li><b>ArgoCD syncs the revert. The probe recovers.</b>
+      <span class="who">Verified by re-querying the alert's own expression, not by a pod turning Ready — a crashlooping pod is Ready in bursts.</span></li>
+    <li><b>The alert resolves and the agent posts the summary in the same Slack thread.</b>
+      <span class="who">Then drafts a postmortem into Notion.</span></li>
+  </ol>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="agents">
+  <h2>Two agents, disjoint tools</h2>
+  <p class="lede">
+    The split is not organisational tidiness. The two jobs pull the harness configuration in
+    <b>opposite directions</b>, and giving one agent both sets of tools makes each one worse.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Agent</th><th>Model</th><th>Harness config</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>sre-oncall<div class="sub">prompts/base.md</div></td>
+          <td>openai/<wbr>gpt-5-6-terra<div class="sub">SRE_ONCALL_MODEL</div></td>
+          <td><code>askUserQuestions: false</code><div class="sub">iterationLimit 200 · no sub-agents · sandbox on</div></td>
+          <td>Woken by an alert with nobody watching the screen. A blocking question is not a gate, it is a hang. Its human checkpoints are deliberate and elsewhere: the Slack approval, and the pull request review.</td>
+        </tr>
+        <tr>
+          <td>automation-<wbr>engineer<div class="sub">prompts/automation-engineer.md</div></td>
+          <td>openai/<wbr>gpt-5-6-terra<div class="sub">AUTOMATION_ENGINEER_MODEL</div></td>
+          <td><code>askUserQuestions: true</code><div class="sub">iterationLimit 100 · no sub-agents · sandbox on</div></td>
+          <td>Only ever runs because a person started it and is waiting. Turning "notify me when a deploy fails" into a specific workflow is impossible without asking which channel, which schedule, which credential.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="note">
+    <b>Sub-agents are off on both, deliberately.</b> A fresh sub-agent starts cold and re-reads every
+    tool schema already paid for. The binding constraint here is a tokens-per-minute ceiling, not
+    reasoning depth — investigations have died at 535k and 618k input tokens. The prompt says not to
+    delegate; the config enforces it.
+  </p>
+
+  <h3>Which agent holds which MCP servers</h3>
+  <div class="lanes">
+    <div class="lane oncall">
+      <header>
+        <div class="aname">sre-oncall</div>
+        <div class="arole">the cluster, the deploy repo, alerting</div>
+      </header>
+      <ul>
+        <li><b>grafana</b> <span class="g part">14 gated</span></li>
+        <li><b>kubernetes</b> <span class="g locked">writes gated</span></li>
+        <li><b>argocd</b> <span class="g locked">writes gated</span></li>
+        <li><b>terraform</b> <span class="g locked">writes gated</span></li>
+        <li><b>github</b> <span class="g part">2 gated</span></li>
+        <li><b>notion</b> <span class="g part">1 gated</span></li>
+      </ul>
+    </div>
+    <div class="lane auto">
+      <header>
+        <div class="aname">automation-engineer</div>
+        <div class="arole">n8n, and nothing else</div>
+      </header>
+      <ul>
+        <li><b>n8n-builder</b> <span class="g part">11 gated</span></li>
+        <li><b>n8n-tools</b> <span class="g locked">all gated</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="shared">
+    <b>raw-file</b> — the one server both agents hold. A single read-only tool that returns a file
+    from git at an exact ref, as text. It exists because GitHub's <code>get_file_contents</code>
+    cannot return file bytes here, and a revert has to restore the previous content <em>verbatim</em>.
+    It grants no cluster access and no write path.
+  </div>
+
+  <p class="note">
+    Because the sets are disjoint, <b>the automation agent cannot touch production even if a
+    requirement asks it to</b> — its blast radius is the workflows it writes. The split also stops
+    each agent paying tool-schema tokens for the other's servers on every single request.
+  </p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="tools">
+  <h2>Every tool, and where the gate is</h2>
+  <p class="lede">
+    Gating is declared per MCP attachment and enforced by the harness. The interesting part is not
+    that gates exist — it is <b>where they are not</b>, because each of those is a decision that had
+    to be argued for.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Server</th><th>Enabled</th><th>Needs approval</th><th>The thing worth explaining</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>grafana</td>
+          <td>all but one<div class="sub"><code>grafana_api_request</code> disabled outright</div></td>
+          <td>14 named write tools</td>
+          <td>Gated by <em>name</em>, not by <code>@write</code>. <code>alerting_manage_rules</code> reads
+            <em>and</em> writes behind one name — <code>operation: "list"</code> is how every
+            investigation begins, so gating by shape stopped the agent before it could look at the
+            alert that woke it. Left ungated; the prompt forbids mutating a rule in words. An
+            explicit trade, stated rather than hidden.</td>
+        </tr>
+        <tr>
+          <td>kubernetes</td>
+          <td>all</td>
+          <td><code>@write</code>, <code>@destructive</code></td>
+          <td>Reading is free — pod status, events, and the <em>previous</em> container's logs, which
+            is where an OOM kill or a panic is actually visible. Every mutation stops.</td>
+        </tr>
+        <tr>
+          <td>argocd</td>
+          <td>all</td>
+          <td><code>@write</code>, <code>@destructive</code></td>
+          <td>A rollback is a production change. The reads are what make "started four minutes after
+            sync abc123" sayable.</td>
+        </tr>
+        <tr>
+          <td>terraform</td>
+          <td>all</td>
+          <td><code>@write</code>, <code>@destructive</code></td>
+          <td>Registry docs and <code>plan</code>/<code>validate</code> are free; <code>apply</code>
+            stops. Terraform owns the alerting config, so a wrong threshold is an HCL change with a
+            plan attached to the PR.</td>
+        </tr>
+        <tr>
+          <td>github</td>
+          <td>11 named tools<div class="sub">the server exposes 44</div></td>
+          <td><code>merge_pull_request</code><br><code>delete_file</code></td>
+          <td><b>Opening a PR is deliberately ungated.</b> Branch, file and PR creation change nothing
+            that is running — they produce the document a human reviews. Stopping to ask "may I open
+            a PR?" leaves the incident burning while waiting for permission to do the one thing that
+            helps. Merging is what reaches production, and a human does that in GitHub.
+            <div class="sub">Only 11 of 44 tools are enabled: re-sending all 44 schemas every turn is
+            what pushed investigations into rate-limit failures.</div></td>
+        </tr>
+        <tr>
+          <td>raw-file</td>
+          <td>1 tool</td>
+          <td>none</td>
+          <td>A pure read at an exact git ref. Gating it would recreate the deadlock it was built to
+            break.</td>
+        </tr>
+        <tr>
+          <td>notion</td>
+          <td>all</td>
+          <td><code>API-delete-a-block</code></td>
+          <td><code>@destructive</code> classified <code>API-post-search</code> as a mutation by its
+            REST-shaped name and stalled every postmortem before it could find the database. Writing
+            a postmortem is this agent's job; only deletion is gated.</td>
+        </tr>
+        <tr>
+          <td>n8n-builder</td>
+          <td>all<div class="sub">7 doc tools, +18 with an API key</div></td>
+          <td>11 named tools</td>
+          <td><b><code>n8n_create_workflow</code> is not gated.</b> Its own description says "Created
+            inactive" — so creating one changes nothing that runs, and it is this agent's entire
+            purpose. There is no activate tool: activation happens inside
+            <code>n8n_update_*</code>, which is why both updates are gated even though "update"
+            sounds tamer than "activate".</td>
+        </tr>
+        <tr>
+          <td>n8n-tools</td>
+          <td>all<div class="sub">live: harness_selftest, list_automations</div></td>
+          <td><code>@all</code></td>
+          <td>Every tool here reaches a real human or runs a real automation. The one server where
+            "gate everything" is the correct policy rather than a shortcut.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="gates">
+  <h2>Why the gates are structural</h2>
+  <p class="lede">
+    A gate is not an instruction the model chooses to follow. It is declared in the agent manifest as
+    <code>requireApprovalForTools</code>, and <b>the harness refuses to execute the call</b> until a
+    human decides.
+  </p>
+
+  <div class="gateflow">
+    <div class="gnode"><div class="t">agent requests a tool call</div><div class="d">e.g. argocd.rollback_application</div></div>
+    <div class="garrow">↓<small>harness checks the attachment's requireApprovalForTools</small></div>
+    <div class="split">
+      <div class="gnode go"><div class="t">not gated</div><div class="d">executes immediately — reads, and the PR that a human is going to review</div></div>
+      <div class="gnode stop"><div class="t">gated</div><div class="d">the turn pauses. Not a prompt, not a convention: the call does not run.</div></div>
+    </div>
+    <div class="garrow">↓<small>written to the audit table BEFORE it is shown, so the record survives a Slack outage</small></div>
+    <div class="gnode"><div class="t">rendered to a human</div><div class="d">Slack Block Kit, with the agent's own reasoning for <em>this</em> call — not an opaque function name</div></div>
+    <div class="garrow">↓<small>the decision is claimed atomically — two people clicking at once cannot both submit</small></div>
+    <div class="split">
+      <div class="gnode go"><div class="t">approved</div><div class="d">a new turn resumes the session where it paused</div></div>
+      <div class="gnode deny"><div class="t">denied</div><div class="d">the agent is told, says what it would have done, and stops</div></div>
+    </div>
+  </div>
+
+  <p class="note">
+    A paused turn and a finished turn both report status <code>"done"</code> — the pending gates are
+    in <code>requiredActions</code>. Treating that as the end of the session is the subtle bug that
+    would silently strand every approval, so the surface detects it specifically.
+  </p>
+
+  <h3>Said plainly: what the gates do not cover</h3>
+  <p class="lede">
+    "Never call <code>alerting_manage_rules</code> with <code>update</code>" and "never kubectl a fix
+    into place" are <b>instructions in the prompt, not access controls</b>. The harness gates by tool
+    name; it has no argument-aware authorization. A model error or a prompt injection could in
+    principle act outside those rules. That is a real limitation of the design, not a detail to leave
+    out of the diagram.
+  </p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="architecture">
+  <h2>What runs where</h2>
+  <p class="lede">
+    Everything that touches a cluster or holds a vendor credential runs on the local host. The only
+    thing deployed publicly is <b>this page</b>, which is static and can invoke nothing.
+  </p>
+  <div class="topo">
+    <div class="tier vercel">
+      <header>Vercel — public</header>
+      <ul>
+        <li>This explainer<small>static HTML · no build step · no env vars · no secrets</small></li>
+      </ul>
+    </div>
+    <div class="tier localhost">
+      <header>Local host — everything else</header>
+      <ul>
+        <li>TrueForge harness<small>npx @truefoundry/trueforge · :8790 · runs both agents</small></li>
+        <li>Orchestrator<small>:8080 · alert admission, sessions, approval audit, Slack surfaces</small></li>
+        <li>kind cluster<small>demo service · ArgoCD · kube-prometheus-stack</small></li>
+        <li>MCP bridges<small>:8100–8106 · stdio servers fronted over HTTP</small></li>
+        <li>n8n + n8n-mcp<small>:5678 · :8105 · the MCP tool hub</small></li>
+        <li>Model proxy<small>:8120 · absorbs the 429s the harness does not retry</small></li>
+      </ul>
+    </div>
+    <div class="tier saas">
+      <header>Cloud — outbound only</header>
+      <ul>
+        <li>OpenAI<small>gpt-5-6-terra, via the local retry proxy</small></li>
+        <li>GitHub<small>hosted MCP · revert PRs · Qodo App reviews the diffs</small></li>
+        <li>Slack<small>two apps, two Socket Mode connections — outbound, no public URL</small></li>
+        <li>Notion<small>postmortem database</small></li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">
+    <b>Two Slack bots, not one.</b> SRE-Oncall owns the incident channel and hears about alerts;
+    Automation-Agent lives in its own channel and routes to the automation agent. Each is a separate
+    Slack app with its own identity and its own Socket Mode connection, and each is scoped to its own
+    channel — a mention fires in <em>any</em> channel a bot is in, so without scoping two bots in one
+    room would both answer.
+  </p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="loops">
+  <h2>The loops</h2>
+  <div class="loops">
+    <div class="loop l-deploy">
+      <div class="name"><span class="n">01</span>Bad deploy → revert PR</div>
+      <div class="trigger">trigger: <b>an alert within ~15 minutes of an ArgoCD sync</b> · the demo path</div>
+      <div class="chain">
+        <span>alert</span><i>→</i><span>correlate to sync</span><i>→</i><span>read the commit</span>
+        <i>→</i><span class="ok">open PR (ungated)</span><i>→</i><span class="gate">human merges</span>
+        <i>→</i><span>ArgoCD syncs</span><i>→</i><span class="ok">alert resolves</span>
+      </div>
+    </div>
+    <div class="loop l-metric">
+      <div class="name"><span class="n">02</span>Metric alert → gated fix</div>
+      <div class="trigger">trigger: <b>error rate, latency, crashloop, replicas unavailable</b></div>
+      <div class="chain">
+        <span>alert</span><i>→</i><span>runbook</span><i>→</i><span>evidence</span>
+        <i>→</i><span class="gate">propose + wait</span><i>→</i><span>act</span><i>→</i><span class="ok">verify the expression</span>
+      </div>
+    </div>
+    <div class="loop l-auto">
+      <div class="name"><span class="n">03</span>Ask in Slack → run an automation</div>
+      <div class="trigger">trigger: <b>a person mentions the bot in #automation-agent</b></div>
+      <div class="chain">
+        <span>mention</span><i>→</i><span>session on automation-engineer</span>
+        <i>→</i><span>pick an n8n tool</span><i>→</i><span class="gate">approve</span><i>→</i><span class="ok">workflow runs</span>
+      </div>
+    </div>
+    <div class="loop l-learn">
+      <div class="name"><span class="n">04</span>Incident → written record</div>
+      <div class="trigger">trigger: <b>the alert returns to Normal</b></div>
+      <div class="chain">
+        <span>resolve</span><i>→</i><span>settle delay</span><i>→</i><span>postmortem session</span>
+        <i>→</i><span>Notion page</span><i>→</i><span>same Slack thread</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="safety">
+  <h2>Safety model</h2>
+  <div class="safety">
+    <div class="card"><b>Read-only by default</b>Investigation is unrestricted. Every change to a live system pauses for a human. Denied means denied — the prompt forbids routing around a gate.</div>
+    <div class="card"><b>Alert payloads are untrusted</b>Labels, log lines, pod names, commit messages and PR bodies are <em>data</em>, not instruction. Anything in them that tries to redirect behaviour is ignored and reported as a suspicious finding.</div>
+    <div class="card"><b>The fix belongs in git</b>Never kubectl a release back into shape — the next sync undoes it and the evidence of what broke is gone. A revert is a commit.</div>
+    <div class="card"><b>One owner per thing</b>ArgoCD owns the workload, Terraform owns the alerting config, nothing owns both. That is what makes each remediation path unambiguous.</div>
+    <div class="card"><b>No vendor credential leaves the host</b>Grafana, GitHub, Slack, Notion and OpenAI tokens live only in a local <code>.env</code>. This page holds none and needs none.</div>
+    <div class="card"><b>The audit log is written first</b>An approval is recorded before it is displayed, and claimed atomically when decided. The record survives a Slack outage and a double click.</div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="real">
+  <h2>What is real, and what is not</h2>
+  <p class="lede">
+    A demo that overstates itself is worse than a smaller one that does not. This is the honest split.
+  </p>
+  <div class="real">
+    <div class="rrow"><span class="rtag v">verified</span><div><b>The GitOps healing loop, end to end</b><div class="d">Bad release → alert → correlation → revert PR → human merge → ArgoCD sync → alert resolves → Slack summary in the same thread. Run against the real cluster.</div></div></div>
+    <div class="rrow"><span class="rtag v">verified</span><div><b>Both Slack bots, live</b><div class="d">Two separate apps, two Socket Mode connections, channel-scoped, approvals rendered as Block Kit and decided by a named approver list.</div></div></div>
+    <div class="rrow"><span class="rtag v">verified</span><div><b>The n8n tool path</b><div class="d">Agent → approval gate → MCP Server Trigger → workflow executes in n8n and returns live instance state. Proven with a server-side timestamp that could only have been produced inside n8n.</div></div></div>
+    <div class="rrow"><span class="rtag v">verified</span><div><b>MCP connectivity</b><div class="d">Grafana, Kubernetes, ArgoCD, Terraform, GitHub, Notion and both n8n servers attach to a live harness and answer real calls.</div></div></div>
+    <div class="rrow"><span class="rtag p">caveat</span><div><b>Git-backed skills do not install on this host</b><div class="d">The harness materialises a skill inside a sandbox whose filesystem policy denies a path <code>xcode-select</code> needs. Rather than pretend, the runbooks are read out of git through the raw-file MCP server, and the routing tables live in the prompts. The skill definitions are correct and stay in the repo — on a host where the sandbox works, re-attaching them is a one-line change.</div></div></div>
+    <div class="rrow"><span class="rtag p">caveat</span><div><b>Gates are tool-name-scoped, not argument-aware</b><div class="d">Several safety rules are prompt instructions rather than access controls. See above — it is stated in the design, not discovered later.</div></div></div>
+    <div class="rrow"><span class="rtag n">scaffolding</span><div><b>The demo cluster is kind, not production</b><div class="d">One service, one namespace, synthetic traffic. The failure modes are real; the scale is not.</div></div></div>
+  </div>
+</section>
+
+<footer>
+  <span>SRE-Oncall · WeMakeDevs Agent Harness Hackathon 2026</span>
+  <a href="https://github.com/Nitishmane/sre-oncall">source</a>
+  <a href="https://trueforge.dev">TrueForge</a>
+  <span>Built with AI assistance — disclosed in <code>docs/ai-assistance.md</code>. Code review by the Qodo GitHub App on pull request diffs.</span>
+</footer>
+
+</main>
+</body>
+</html>
