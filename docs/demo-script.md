@@ -160,13 +160,15 @@ instead of implying a page appeared.)*
 
 ### 2:45–3:00 — The second agent, and the close
 
-**Screen:** Slack `#automation-agent` — a mention, the approval prompt naming
-`n8n-tools.list_automations`, the approve click, and the answer landing in the
-thread.
+**Screen:** Slack `#automation-agent` — a mention asking for the employee
+directory, and the records landing in the thread as a fixed-width table. No
+approval prompt: this is a read.
 
 **Say:** "There are two agents, not one. This second one builds and runs n8n
 automations — and it shares no tools with the on-call agent, so it cannot reach
-the cluster at all. Same harness, same approval gates, different blast radius.
+the cluster at all. Notice it just answered: reading is not gated. The gate sits
+on the call that activates a workflow, because that is the one that reaches real
+people. Same harness, gates in different places, different blast radius.
 That's TrueForge Agents: an alert, an investigation over real MCP tools, a fix a
 human merges, and a written record."
 
