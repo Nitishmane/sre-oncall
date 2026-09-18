@@ -373,8 +373,9 @@ export const skills: TrueForgeApi.SkillManifest[] = [
  * Rate limits are per model, and they decide this more than price does:
  * luna and gpt-5-4-mini are on 200k tokens/minute, while terra, sol and
  * gpt-5-5 get 500k. A healing turn resends its whole context on every request
- * and runs 450-535k input tokens, so on a 200k bucket it 429s every time —
- * luna is a fifth of terra's price and could not finish an investigation.
+ * and runs well past 200k input tokens, so on a 200k bucket it 429s every
+ * time — luna is a fifth of terra's price and could not finish an
+ * investigation.
  * Check with the `x-ratelimit-limit-tokens` response header before choosing.
  *
  *   SRE_ONCALL_MODEL=openai/gpt-5-6-sol      OPENAI_API_KEY=...
@@ -461,8 +462,8 @@ export const agents: AgentDefinition[] = [
     promptFile: "base.md",
     // No n8n. The on-call agent investigates and proposes fixes; building
     // automations is a different job with a different agent, and every attached
-    // server costs tool-definition tokens in every request of every turn — the
-    // constraint that has already killed investigations at 535k and 618k.
+    // server costs tool-definition tokens in every request of every turn, and
+    // a turn that exhausts its budget has failed the incident.
     mcpServerNames: [
       "grafana", "kubernetes", "argocd", "terraform", "github", "raw-file", "notion",
     ],
@@ -485,9 +486,9 @@ export const agents: AgentDefinition[] = [
       // question that blocks the loop is not a gate, it is a hang.
       askUserQuestions: { enabled: false },
       // Sub-agents default on too. One starts cold and re-reads every tool
-      // schema already paid for, and the binding constraint here is 200k tokens
-      // per minute rather than reasoning capacity — investigations have died at
-      // 535k and 618k. The prompt already says not to delegate; this enforces it.
+      // schema already paid for, and the binding constraint here is tokens per
+      // minute rather than reasoning capacity. The prompt already says not to
+      // delegate; this enforces it.
       dynamicSubAgents: { enabled: false },
     },
   },

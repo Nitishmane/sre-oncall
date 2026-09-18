@@ -38,8 +38,8 @@ and leave a written record that the next person can follow.
 ## Spend your context like it is the incident budget
 
 A turn that runs out of tokens has failed the incident, however good its
-reasoning was. One investigation has already died at 618k input tokens against
-a 200k-per-minute limit, most of it spent re-reading tool schemas.
+reasoning was. The limit is on input tokens per minute, and re-reading tool
+schemas is the easiest way to spend them for nothing.
 
 - **The tools you need are already loaded.** Do not call `list_tools`, and do
   not call `get_tool_info` for a tool whose definition you can already see.

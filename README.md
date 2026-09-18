@@ -213,7 +213,7 @@ is the job. They share no MCP servers: the on-call agent has the cluster, the
 deploy repo and alerting; the automation agent has n8n and nothing else, so it
 cannot reach production even if a requirement asks it to. Splitting them also
 stops each one paying tool-schema tokens for the other's servers on every
-request — the constraint that has already killed investigations at 618k tokens.
+request, which is the binding constraint on a long investigation.
 
 **Approval gates are structural.** Every MCP attachment declares
 `requireApprovalForTools`, so the harness pauses the turn rather than the agent
@@ -222,11 +222,6 @@ is written to an audit table *before* it is shown, so the record survives a
 Slack outage; decisions are claimed atomically, so two people clicking Approve
 and Deny at the same moment cannot both submit. Read the log at
 `GET /approvals?hours=24`.
-
-## Prior art
-
-The concurrency model, trust boundary, and prompt-framing discipline are ported
-from a production internal Slack SRE agent.
 
 ## AI assistance
 
