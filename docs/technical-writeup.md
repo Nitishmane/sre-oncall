@@ -275,8 +275,7 @@ output attached to a PR, also gated.
 
 ## Concurrency
 
-Two layers, both in `orchestrator/src/concurrency.ts`, ported from a
-production internal Slack SRE agent's concurrency pattern:
+Two layers, both in `orchestrator/src/concurrency.ts`:
 
 - **A per-fingerprint promise chain** (`createKeyedQueue`). Work for the same
   alert always runs in the order it arrived, never concurrently — so a

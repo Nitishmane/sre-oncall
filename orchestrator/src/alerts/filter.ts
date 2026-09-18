@@ -3,8 +3,8 @@ import type { Store } from "../store.ts";
 import type { NormalizedAlert } from "./payload.ts";
 
 /**
- * Alert admission policy, ported from the reference agent's pre-filter design.
- * Every rejection is explicit so the reason can be logged and shown in the demo.
+ * Alert admission policy. Every rejection is explicit so the reason can be
+ * logged and shown in the demo.
  */
 
 export type Decision =

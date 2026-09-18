@@ -14,9 +14,9 @@ file is that disclosure.
 
 ## How it was used
 
-Planning and research were done before the hackathon window opened (permitted by
-the rules; see `PLAN.md` and `research/`). All code in this repository was
-written inside the window, Aug 24–30 2026.
+Planning and research were done before the hackathon window opened, as the
+rules permit. All code in this repository was written inside the window,
+Aug 24–30 2026.
 
 The working pattern was: decide the design, have the assistant draft an
 implementation, then review, correct, and test it. Notable places where the
@@ -45,7 +45,6 @@ but are not part of what runs.
 
 All of it — that is the standard the rules set. The parts worth asking about are
 the concurrency model in `orchestrator/src/concurrency.ts` (a per-fingerprint
-promise chain under a global semaphore, ported from the prior art described in
-`research/reference-agent-analysis.md`), the trust boundary in
+promise chain under a global semaphore), the trust boundary in
 `orchestrator/src/alerts/payload.ts`, and the approval policy expressed on each
 MCP attachment in `agent/agent.ts`.

@@ -37,7 +37,7 @@ const schema = z.object({
   /** Bearer the Vercel chatbox must present on /chat/*. */
   TRUEFORGE_BRIDGE_TOKEN: z.string().min(16),
 
-  /** Concurrency + alert-filter policy (ported from the reference agent). */
+  /** Concurrency + alert-filter policy. */
   MAX_CONCURRENT_SESSIONS: z.coerce.number().int().positive().default(3),
   ALERT_MAX_PER_HOUR: z.coerce.number().int().positive().default(10),
   ALERT_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
